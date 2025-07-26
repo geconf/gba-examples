@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/home/geconf/Nextcloud/gba-dev/projects/snake/build",
-  "command": "/opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc   -g -Wall -O2 -mcpu=arm7tdmi -mtune=arm7tdmi -mthumb -mthumb-interwork -iquote /home/geconf/Nextcloud/gba-dev/projects/snake/include -I/opt/devkitpro/libgba/include -I/opt/devkitpro/libtonc/include -I/home/geconf/Nextcloud/gba-dev/projects/snake/build -c /home/geconf/Nextcloud/gba-dev/projects/snake/source/snake.c -o snake.o",
-  "file": "/home/geconf/Nextcloud/gba-dev/projects/snake/source/snake.c"
-}
-]

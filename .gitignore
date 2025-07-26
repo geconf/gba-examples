@@ -1,0 +1,36 @@
+# GBA build output
+*.gba
+*.elf
+*.o
+*.map
+*.sav
+*.sym
+*.bin
+*.lst
+
+# Object and intermediate files
+*.d
+*.i
+*.s
+*.asm
+
+# Backup files
+*~
+*.bak
+*.tmp
+
+# Build directories
+build/
+out/
+bin/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Compiler/linker logs
+*.log
+
+# Ignore libtonc if it's submodule or copied in directly
+libtonc/
+
