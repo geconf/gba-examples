@@ -143,7 +143,7 @@ void render_direction(u8 color) {
     }
 }
 
-void update_player() {
+void update_player(int dt_fp) {
     int prevX = FIXED_TO_INT(playerX);
     int prevY = FIXED_TO_INT(playerY);
     int newX = prevX, newY = prevY;
@@ -162,45 +162,61 @@ void update_player() {
     // Apply Y movement first
     if (!player_in_collision(prevX, FIXED_TO_INT(playerY + moveY))) {
         playerY += moveY;
-        newY = FIXED_TO_INT(playerY);
     }
     // Done in case moveY is too large
     else if (moveY > 0  && !player_in_collision(prevX, FIXED_TO_INT(playerY)+1)) {
         playerY += FIXED(1);
-        newY = FIXED_TO_INT(playerY);
     }
     else if (moveY < 0  && !player_in_collision(prevX, FIXED_TO_INT(playerY)-1)) {
         playerY -= FIXED(1);
-        newY = FIXED_TO_INT(playerY);
     }
 
     // Apply X movement after
     if (!player_in_collision(FIXED_TO_INT(playerX + moveX), newY)) {
         playerX += moveX;
-        newX = FIXED_TO_INT(playerX);
     }
     else if (moveX > 0  && !player_in_collision(FIXED_TO_INT(playerX)+1, newY)) {
         playerX += FIXED(1);
-        newX = FIXED_TO_INT(playerX);
     }
     else if (moveX < 0  && !player_in_collision(FIXED_TO_INT(playerX)-1, newY)) {
         playerX -= FIXED(1);
-        newX = FIXED_TO_INT(playerX);
     }
 
-    // Apply Rotation. No need to check for collision in a raycaster
+    newX = FIXED_TO_INT(playerX);
+    newY = FIXED_TO_INT(playerY);
+    // Apply Rotation. No need to check for collisions in a raycaster
     playerTheta += rotateTheta;
-
-    // Erase old position only if moved
-    if (newX != prevX || newY != prevY) {
-        render_player(prevX, prevY, 3);
-    }
-
 
     render_player(newX, newY, playerColor);
     render_direction(1);
 }
 
+
+static u16 lastTicks;
+static int dt_fp;
+
+void init_timebase(void) {
+    REG_TM0CNT_L = 0;
+    // start at SYSCLK (16.78 MHz)
+    REG_TM0CNT_H = TM_ENABLE | TM_FREQ_64;
+    lastTicks    = REG_TM0CNT_L;
+}
+
+
+void calc_delta_time(void) {
+    u16 now  = REG_TM0CNT_L;
+    u16 diff = now - lastTicks;   // wraps OK on 16 bits
+    lastTicks = now;
+
+    // 2^18 Hz timer → shift = 18 – 12 = 6
+    dt_fp = diff >> 6;
+    u16 fps = diff
+             ? (262144 + diff/2) / diff   // integer divide with 0.5‑tick rounding
+             : 0;
+    tte_write("#{P:150,120}");
+    tte_erase_line();
+    tte_printf("dt_ms: %d", fps);
+}
 
 
 int main() {
@@ -208,6 +224,7 @@ int main() {
 
     tte_init_bmp(DCNT_MODE4, NULL, NULL);
     tte_init_con();
+    init_timebase();
 
     // Set up colors
     pal_bg_mem[0] = RGB15(0, 0, 0) | BIT(15);   // Black background
@@ -218,13 +235,14 @@ int main() {
 
     while (1) {
         vid_vsync();
+        calc_delta_time();
 
         TTC *tc = tte_get_context();
         tc->dst.data  = back_page();
         tc->dst.pitch = SCREEN_WIDTH;
 
         draw_map(MAP_X, MAP_Y);
-        update_player();
+        //update_player(dt_fp);
         vid_flip();
     }
 }
