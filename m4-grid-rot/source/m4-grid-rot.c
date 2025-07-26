@@ -4,6 +4,7 @@
 #include "tonc_tte.h"
 #include <tonc.h>
 #include <tonc_core.h>
+#include <stdlib.h>
 
 #define SCREEN_WIDTH  240
 #define SCREEN_HEIGHT 160
@@ -54,6 +55,9 @@ const int PLAYER_START_THETA = FIXED(0);
 int playerTheta = PLAYER_START_THETA;
 u8 playerColor = 2;
 
+static u16 lastTicks;
+static int fps;
+
 
 static inline u8* back_page(void) {
     return (u8*)0x06000000
@@ -95,19 +99,6 @@ int player_in_collision(int x, int y){
 
 
 void render_direction(u8 color) {
-    tte_write("#{P:50,0}");
-    tte_erase_line();
-    tte_printf("Player X: %d", FIXED_TO_INT(playerX));
-    tte_write("#{P:50,10}");
-    tte_erase_line();
-    tte_printf("Player Y: %d", FIXED_TO_INT(playerY));
-    tte_write("#{P:50,105}");
-    tte_write("#{P:50,20}");
-    tte_erase_line();
-    tte_printf("Player X in fixed: %d", playerX);
-    tte_write("#{P:50,30}");
-    tte_erase_line();
-    tte_printf("Player Y in fixed: %d", playerY);
     tte_write("#{P:50,105}");
     tte_erase_line();
     tte_printf("Player theta: %d", playerTheta);
@@ -125,13 +116,12 @@ void render_direction(u8 color) {
     tte_write("#{P:50,145}");
     tte_erase_line();
     tte_printf("Y dir to plot: %d", FIXED_TO_INT(playerY+y_dir));
-    int rayLength = 50;
-    int fov = LU_PI/2;
-    for (int i = -fov/2; i < fov/2+1; i = i + LU_PI/275) {
+    const int rayLength = 30;
+    for (int i = -FOV/2; i < FOV/2+1; i = i + LU_PI/250) {
+        u32 xDir = lu_cos(playerTheta + i);
+        u32 yDir = lu_sin(playerTheta + i);
         for (int j = 1; j < rayLength + 1; j++) {
-            u32 xDir = lu_cos(playerTheta + i);
-            u32 yDir = lu_sin(playerTheta + i);
-            // We need to "snap" the position to a certain tile, which is why these conversions are done
+            // We need to "snap" the position to a tile, which is why these conversions are done
             u32 xRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX))+j*xDir);
             u32 yRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY))+j*yDir);
             if (player_in_collision(xRay, yRay))
@@ -143,7 +133,7 @@ void render_direction(u8 color) {
     }
 }
 
-void update_player(int dt_fp) {
+void update_player() {
     int prevX = FIXED_TO_INT(playerX);
     int prevY = FIXED_TO_INT(playerY);
     int newX = prevX, newY = prevY;
@@ -159,8 +149,19 @@ void update_player(int dt_fp) {
     if (key_is_down(KEY_LEFT)) rotateTheta = -ANGULAR_SPEED;
     if (key_is_down(KEY_RIGHT)) rotateTheta = ANGULAR_SPEED;
 
+    tte_write("#{P:50,0}");
+    tte_erase_line();
+    tte_printf("Player X: %d", FIXED_TO_INT(playerX));
+    tte_write("#{P:50,10}");
+    tte_erase_line();
+    tte_printf("Player Y: %d", FIXED_TO_INT(playerY));
+    tte_write("#{P:50,105}");
+    tte_write("#{P:50,20}");
+    tte_erase_line();
+    tte_printf("FPS: %d", fps);
+
     // Apply Y movement first
-    if (!player_in_collision(prevX, FIXED_TO_INT(playerY + moveY))) {
+    if (!player_in_collision(prevX, prevY + FIXED_TO_INT(moveY))) {
         playerY += moveY;
     }
     // Done in case moveY is too large
@@ -170,9 +171,10 @@ void update_player(int dt_fp) {
     else if (moveY < 0  && !player_in_collision(prevX, FIXED_TO_INT(playerY)-1)) {
         playerY -= FIXED(1);
     }
+    newY = FIXED_TO_INT(playerY);
 
     // Apply X movement after
-    if (!player_in_collision(FIXED_TO_INT(playerX + moveX), newY)) {
+    if (!player_in_collision(prevX + FIXED_TO_INT(moveX), newY)) {
         playerX += moveX;
     }
     else if (moveX > 0  && !player_in_collision(FIXED_TO_INT(playerX)+1, newY)) {
@@ -181,19 +183,20 @@ void update_player(int dt_fp) {
     else if (moveX < 0  && !player_in_collision(FIXED_TO_INT(playerX)-1, newY)) {
         playerX -= FIXED(1);
     }
-
     newX = FIXED_TO_INT(playerX);
-    newY = FIXED_TO_INT(playerY);
+
     // Apply Rotation. No need to check for collisions in a raycaster
     playerTheta += rotateTheta;
+
+    // Erase old position only if moved
+    if (newX != prevX || newY != prevY) {
+        render_player(prevX, prevY, 3);
+    }
 
     render_player(newX, newY, playerColor);
     render_direction(1);
 }
 
-
-static u16 lastTicks;
-static int dt_fp;
 
 void init_timebase(void) {
     REG_TM0CNT_L = 0;
@@ -209,13 +212,9 @@ void calc_delta_time(void) {
     lastTicks = now;
 
     // 2^18 Hz timer → shift = 18 – 12 = 6
-    dt_fp = diff >> 6;
-    u16 fps = diff
+    fps = diff
              ? (262144 + diff/2) / diff   // integer divide with 0.5‑tick rounding
              : 0;
-    tte_write("#{P:150,120}");
-    tte_erase_line();
-    tte_printf("dt_ms: %d", fps);
 }
 
 
@@ -233,6 +232,10 @@ int main() {
     pal_bg_mem[3] = RGB15(16, 0, 0) | BIT(15);  // Red ground
     pal_bg_mem[1] = RGB15(0, 0, 31) | BIT(15);  // Blue direction
 
+    // Drawing the map here could make this faster
+    // draw_map(MAP_X, MAP_Y);
+    vid_flip();
+    // draw_map(MAP_X, MAP_Y);
     while (1) {
         vid_vsync();
         calc_delta_time();
@@ -241,9 +244,18 @@ int main() {
         tc->dst.data  = back_page();
         tc->dst.pitch = SCREEN_WIDTH;
 
+        int prevX = FIXED_TO_INT(playerX);
+        int prevY = FIXED_TO_INT(playerY);
         draw_map(MAP_X, MAP_Y);
-        //update_player(dt_fp);
+        update_player();
         vid_flip();
+        int newX = FIXED_TO_INT(playerX);
+        int newY = FIXED_TO_INT(playerY);
+
+        // Erase old position only if moved
+        if (newX != prevX || newY != prevY) {
+            render_player(prevX, prevY, 3);
+        }
     }
 }
 
