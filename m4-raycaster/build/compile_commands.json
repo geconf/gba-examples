@@ -1,0 +1,7 @@
+[
+{
+  "directory": "/home/geconf/Nextcloud/game-dev/examples/m4-raycaster/build",
+  "command": "/opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc   -g -Wall -O2 -mcpu=arm7tdmi -mtune=arm7tdmi -mthumb -iquote /home/geconf/Nextcloud/game-dev/examples/m4-raycaster/include -I/opt/devkitpro/libgba/include -I/opt/devkitpro/libtonc/include -I/opt/devkitpro/devkitARM/arm-none-eabi/include -I/home/geconf/Nextcloud/game-dev/examples/m4-raycaster/build -c /home/geconf/Nextcloud/game-dev/examples/m4-raycaster/source/m4-raycaster.c -o m4-raycaster.o",
+  "file": "/home/geconf/Nextcloud/game-dev/examples/m4-raycaster/source/m4-raycaster.c"
+}
+]

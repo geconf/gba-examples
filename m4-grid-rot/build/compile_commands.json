@@ -1,0 +1,7 @@
+[
+{
+  "directory": "/home/geconf/Nextcloud/game-dev/examples/m4-grid-rot/build",
+  "command": "/opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc   -g -Wall -O2 -mcpu=arm7tdmi -mtune=arm7tdmi -mthumb -iquote /home/geconf/Nextcloud/game-dev/examples/m4-grid-rot/include -I/opt/devkitpro/libgba/include -I/opt/devkitpro/libtonc/include -I/opt/devkitpro/devkitARM/arm-none-eabi/include -I/home/geconf/Nextcloud/game-dev/examples/m4-grid-rot/build -c /home/geconf/Nextcloud/game-dev/examples/m4-grid-rot/source/m4-grid-rot.c -o m4-grid-rot.o",
+  "file": "/home/geconf/Nextcloud/game-dev/examples/m4-grid-rot/source/m4-grid-rot.c"
+}
+]
