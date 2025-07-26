@@ -30,6 +30,7 @@ Thumbs.db
 
 # Compiler/linker logs
 *.log
+*.idx
 
 # Ignore libtonc if it's submodule or copied in directly
 libtonc/
