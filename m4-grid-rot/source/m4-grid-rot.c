@@ -15,7 +15,7 @@
 // Fixed-point math
 #define FIXED_SHIFT  12
 // Convert to Fixed point
-#define FIXED(x)     ((int)((x) * (1 << FIXED_SHIFT))) 
+#define FIXED(x) ((int)((x) * (1 << FIXED_SHIFT))) 
 // Convert to integer. It adds half the divisor to round up
 #define FIXED_TO_INT(x) ((x + (1 << (FIXED_SHIFT - 1))) >> FIXED_SHIFT) 
 #define LU_PI 0x8000
@@ -25,6 +25,8 @@ const u16 TILE_SIZE = 8;
 // Simple 8×8 maze (1 = wall, 0 = empty space)
 const u16 MAP_WIDTH = 8;
 const u16 MAP_HEIGHT = 8;
+const u16 MAP_X = 80;
+const u16 MAP_Y = 40;
 const u16 worldMap[8][8] = {
     {1, 1, 1, 1, 1, 1, 1, 1},
     {1, 0, 0, 0, 0, 0, 0, 1},
@@ -35,8 +37,6 @@ const u16 worldMap[8][8] = {
     {1, 0, 0, 0, 0, 1, 0, 1},
     {1, 1, 1, 1, 1, 1, 1, 1}
 };
-const u16 MAP_X = 80;
-const u16 MAP_Y = 40;
 
 // Player position
 const u32 PLAYER_START_X = FIXED(MAP_X+1*TILE_SIZE) + FIXED(TILE_SIZE/2);
@@ -57,8 +57,8 @@ const u16 FOV = LU_PI/2;
 const u16 RAY_LENGTH = 30;
 
 // Player Speed
-const s32 LINEAR_SPEED = FIXED(30);
-const u16 ANGULAR_SPEED = LU_PI;
+const s32 LINEAR_SPEED = 50;
+const u16 ANGULAR_SPEED = LU_PI/3000;
 
 // Color Palette
 const u16 BLACK_COLOR_IDX = 0;
@@ -73,7 +73,6 @@ const u32 SYSCLK_64_HALF = 262144/2;
 static u16 lastTicks;
 static u16 fps;
 static u16 dt;
-
 
 static inline u8* back_page(void) {
     return (u8*)0x06000000
@@ -108,8 +107,8 @@ void render_player(u16 x, u16 y, u16 color){
 
 
 int pixel_in_collision(u16 x, u16 y){
-    int playerXTile= (x-MAP_X)/TILE_SIZE;
-    int playerYTile= (y-MAP_Y)/TILE_SIZE;
+    int playerXTile = (x-MAP_X)/TILE_SIZE;
+    int playerYTile = (y-MAP_Y)/TILE_SIZE;
     return worldMap[playerYTile][playerXTile];
 }
 
@@ -148,6 +147,25 @@ void render_direction(u8 color) {
     }
 }
 
+static inline s16 clamp_steps(
+    s16 currentAxisCoord,
+    s16 delta,
+    s16 otherAxisCoord,
+    bool isVertical
+    ) 
+{
+    if (delta == 0) return 0;
+    s16  sign  = (delta > 0) ?  1 : -1;
+    u16  steps = abs(delta);
+    for (u16 i = 1; i <= steps; ++i) {
+        s16 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
+        s16 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
+        if (pixel_in_collision(x, y))
+            return sign * (i - 1);
+    }
+    return sign * steps;
+}
+
 void update_player() {
     u16 prevX = FIXED_TO_INT(playerX);
     u16 prevY = FIXED_TO_INT(playerY);
@@ -157,19 +175,21 @@ void update_player() {
 
     s16 moveX = 0, moveY = 0, rotateTheta = 0;
 
-    if (key_is_down(KEY_UP))    moveY = -LINEAR_SPEED/fps;
-    if (key_is_down(KEY_DOWN))  moveY = LINEAR_SPEED/fps;
-    if (key_is_down(KEY_B))  moveX = -LINEAR_SPEED/fps;
-    if (key_is_down(KEY_A)) moveX = LINEAR_SPEED/fps;
-    if (key_is_down(KEY_LEFT)) rotateTheta = -ANGULAR_SPEED/fps;
-    if (key_is_down(KEY_RIGHT)) rotateTheta = ANGULAR_SPEED/fps;
+    s16 ticsPerSec = FIXED(dt) / SYSCLK_64;
+    s16 linearMove = LINEAR_SPEED * ticsPerSec;
+    s16 angularMove = ANGULAR_SPEED * ticsPerSec;
+    if (key_is_down(KEY_UP)) moveY = -linearMove;
+    if (key_is_down(KEY_DOWN)) moveY = linearMove;
+    if (key_is_down(KEY_B)) moveX = -linearMove;
+    if (key_is_down(KEY_A)) moveX = linearMove;
+    if (key_is_down(KEY_LEFT)) rotateTheta = -angularMove;
+    if (key_is_down(KEY_RIGHT)) rotateTheta = angularMove;
     // Handle moving diagonally at the same speed
     if (moveX && moveY)
     {
         moveX = moveX*0.707;
         moveY = moveY*0.707;
     }
-
     tte_write("#{P:50,0}");
     tte_erase_line();
     tte_printf("Player X: %d", FIXED_TO_INT(playerX));
@@ -182,37 +202,19 @@ void update_player() {
     tte_printf("FPS: %d", fps);
 
     // Apply Y movement first
-    if (!pixel_in_collision(prevX, prevY + FIXED_TO_INT(moveY))) {
-        playerY += FIXED(FIXED_TO_INT(moveY));
-    }
-    // Done in case moveY is too large
-    else if (moveY > 0  && !pixel_in_collision(prevX, FIXED_TO_INT(playerY)+1)) {
-        playerY += FIXED(1);
-    }
-    else if (moveY < 0  && !pixel_in_collision(prevX, FIXED_TO_INT(playerY)-1)) {
-        playerY -= FIXED(1);
-    }
+    // Get distance to walls
+    s16 deltaY = FIXED_TO_INT(moveY);
+    s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
+    playerY += FIXED(safeStepsY);
     newY = FIXED_TO_INT(playerY);
 
-    // Apply X movement after
-    if (!pixel_in_collision(prevX + FIXED_TO_INT(moveX), newY)) {
-        playerX += FIXED(FIXED_TO_INT(moveX));
-    }
-    else if (moveX > 0  && !pixel_in_collision(FIXED_TO_INT(playerX)+1, newY)) {
-        playerX += FIXED(1);
-    }
-    else if (moveX < 0  && !pixel_in_collision(FIXED_TO_INT(playerX)-1, newY)) {
-        playerX -= FIXED(1);
-    }
+    s16 deltaX = FIXED_TO_INT(moveX);
+    s16 safeStepsX = clamp_steps(prevX, deltaX, newY, false);
+    playerX += FIXED(safeStepsX);
     newX = FIXED_TO_INT(playerX);
 
     // Apply Rotation. No need to check for collisions in a raycaster
     playerTheta += rotateTheta;
-
-    // Erase old player position only if moved
-    if (newX != prevX || newY != prevY) {
-        render_player(prevX, prevY, FLOOR_COLOR_IDX);
-    }
 
     render_player(newX, newY, PLAYER_COLOR_IDX);
     render_direction(1);
@@ -259,17 +261,24 @@ int main() {
     init_timebase();
 
     // Set up colors
-    pal_bg_mem[BLACK_COLOR_IDX] = RGB15(0, 0, 0) | BIT(15);   // Black background
-    pal_bg_mem[WALL_COLOR_IDX] = RGB15(16, 0, 31) | BIT(15); // Purple walls
-    pal_bg_mem[PLAYER_COLOR_IDX] = RGB15(0, 31, 0) | BIT(15);  // Green player
-    pal_bg_mem[FLOOR_COLOR_IDX] = RGB15(16, 0, 0) | BIT(15);  // Red ground
-    pal_bg_mem[DIR_COLOR_IDX] = RGB15(0, 0, 31) | BIT(15);  // Blue direction
+    // Black background
+    pal_bg_mem[BLACK_COLOR_IDX] = RGB15(0, 0, 0) | BIT(15);
+    // Purple walls
+    pal_bg_mem[WALL_COLOR_IDX] = RGB15(16, 0, 31) | BIT(15);
+    // Green player
+    pal_bg_mem[PLAYER_COLOR_IDX] = RGB15(0, 31, 0) | BIT(15);
+    // Red ground
+    pal_bg_mem[FLOOR_COLOR_IDX] = RGB15(16, 0, 0) | BIT(15);
+    // Blue direction
+    pal_bg_mem[DIR_COLOR_IDX] = RGB15(0, 0, 31) | BIT(15);
 
-    /* Drawing the map here in both screens could make it faster, 
-     * but we would have to constantly erase the player and rays' positions */
-    // draw_map(MAP_X, MAP_Y);
-    vid_flip();
-    // draw_map(MAP_X, MAP_Y);
+    /* 
+     * Drawing the map here in both screens could make it faster, 
+     * but we would have to constantly erase the player and rays' positions
+     * draw_map(MAP_X, MAP_Y);
+     * vid_flip();
+     * draw_map(MAP_X, MAP_Y);
+    */
     while (1) {
         vid_vsync();
         calc_delta_time();
@@ -278,18 +287,9 @@ int main() {
         tc->dst.data  = back_page();
         tc->dst.pitch = SCREEN_WIDTH;
 
-        u16 prevX = FIXED_TO_INT(playerX);
-        u16 prevY = FIXED_TO_INT(playerY);
         draw_map(MAP_X, MAP_Y);
         update_player();
         vid_flip();
-        u16 newX = FIXED_TO_INT(playerX);
-        u16 newY = FIXED_TO_INT(playerY);
-
-        // Erase old player position only if moved
-        if (newX != prevX || newY != prevY) {
-            render_player(prevX, prevY, FLOOR_COLOR_IDX);
-        }
     }
 }
 
