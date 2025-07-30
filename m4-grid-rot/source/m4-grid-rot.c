@@ -81,11 +81,7 @@ static inline u8* back_page(void) {
 
 
 void draw_tile(u16 x, u16 y, u16 color) {
-    for (u16 dy = 0; dy < TILE_SIZE; dy++) {
-        for (u16 dx = 0; dx < TILE_SIZE; dx++) {
-            m4_plot(x+dy, y+dx, color);
-        }
-    }
+    m4_rect(x, y, x + TILE_SIZE, y + TILE_SIZE, color);
 }
 
 void draw_map(u16 x, u16 y) {
@@ -178,12 +174,12 @@ void update_player() {
     s16 ticsPerSec = FIXED(dt) / SYSCLK_64;
     s16 linearMove = LINEAR_SPEED * ticsPerSec;
     s16 angularMove = ANGULAR_SPEED * ticsPerSec;
-    if (key_is_down(KEY_UP)) moveY = -linearMove;
-    if (key_is_down(KEY_DOWN)) moveY = linearMove;
-    if (key_is_down(KEY_B)) moveX = -linearMove;
-    if (key_is_down(KEY_A)) moveX = linearMove;
-    if (key_is_down(KEY_LEFT)) rotateTheta = -angularMove;
-    if (key_is_down(KEY_RIGHT)) rotateTheta = angularMove;
+    if (key_is_down(KEY_UP)) moveY += -linearMove;
+    if (key_is_down(KEY_DOWN)) moveY += linearMove;
+    if (key_is_down(KEY_B)) moveX += -linearMove;
+    if (key_is_down(KEY_A)) moveX += linearMove;
+    if (key_is_down(KEY_LEFT)) rotateTheta += -angularMove;
+    if (key_is_down(KEY_RIGHT)) rotateTheta += angularMove;
     // Handle moving diagonally at the same speed
     if (moveX && moveY)
     {
