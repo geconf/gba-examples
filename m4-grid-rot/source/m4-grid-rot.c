@@ -5,6 +5,7 @@
 #include <tonc.h>
 #include <tonc_core.h>
 #include <stdlib.h>
+#include <math.h>
 
 // GBA constants
 #define SCREEN_WIDTH  240
@@ -174,10 +175,10 @@ void update_player() {
     s16 ticsPerSec = FIXED(dt) / SYSCLK_64;
     s16 linearMove = LINEAR_SPEED * ticsPerSec;
     s16 angularMove = ANGULAR_SPEED * ticsPerSec;
-    if (key_is_down(KEY_UP)) moveY += -linearMove;
-    if (key_is_down(KEY_DOWN)) moveY += linearMove;
-    if (key_is_down(KEY_B)) moveX += -linearMove;
-    if (key_is_down(KEY_A)) moveX += linearMove;
+    if (key_is_down(KEY_UP)) moveY += linearMove;
+    if (key_is_down(KEY_DOWN)) moveY += -linearMove;
+    if (key_is_down(KEY_B)) moveX += linearMove;
+    if (key_is_down(KEY_A)) moveX += -linearMove;
     if (key_is_down(KEY_LEFT)) rotateTheta += -angularMove;
     if (key_is_down(KEY_RIGHT)) rotateTheta += angularMove;
     // Handle moving diagonally at the same speed
@@ -197,20 +198,25 @@ void update_player() {
     tte_erase_line();
     tte_printf("FPS: %d", fps);
 
-    // Apply Y movement first
-    // Get distance to walls
-    s16 deltaY = FIXED_TO_INT(moveY);
+    // Apply Rotation. No need to check for collisions in a raycaster
+    playerTheta += rotateTheta;
+
+    // Apply translation per axis
+    s16 yDir = lu_sin(playerTheta);
+    s16 yLatDir = lu_sin(playerTheta - LU_PI/2);
+    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir) + FIXED_TO_INT(moveX * yLatDir);
+    s16 deltaY = FIXED_TO_INT(fixedDeltaY);
     s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
     playerY += FIXED(safeStepsY);
     newY = FIXED_TO_INT(playerY);
 
-    s16 deltaX = FIXED_TO_INT(moveX);
+    s16 xDir = lu_cos(playerTheta);
+    s16 xLatDir = lu_cos(playerTheta - LU_PI/2);
+    s16 fixedDeltaX = FIXED_TO_INT(moveY * xDir) + FIXED_TO_INT(moveX * xLatDir);
+    s16 deltaX = FIXED_TO_INT(fixedDeltaX);
     s16 safeStepsX = clamp_steps(prevX, deltaX, newY, false);
     playerX += FIXED(safeStepsX);
     newX = FIXED_TO_INT(playerX);
-
-    // Apply Rotation. No need to check for collisions in a raycaster
-    playerTheta += rotateTheta;
 
     render_player(newX, newY, PLAYER_COLOR_IDX);
     render_direction(1);
