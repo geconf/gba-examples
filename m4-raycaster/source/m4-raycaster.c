@@ -156,9 +156,9 @@ void update_player() {
 
     s16 moveX = 0, moveY = 0, rotateTheta = 0;
 
-    s16 ticsPerSec = FIXED(dt) / SYSCLK_64;
-    s16 linearMove = LINEAR_SPEED * ticsPerSec;
-    s16 angularMove = ANGULAR_SPEED * ticsPerSec;
+    s16 secPerFrame = FIXED(dt) / SYSCLK_64;
+    s16 linearMove = LINEAR_SPEED * secPerFrame;
+    s16 angularMove = ANGULAR_SPEED * secPerFrame;
     if (key_is_down(KEY_UP)) moveY += linearMove;
     if (key_is_down(KEY_DOWN)) moveY += -linearMove;
     if (key_is_down(KEY_B)) moveX += linearMove;
@@ -178,7 +178,7 @@ void update_player() {
     // Apply translation per axis
     s16 yDir = lu_sin(playerTheta);
     s16 yLatDir = lu_sin(playerTheta - LU_PI/2);
-    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir) + FIXED_TO_INT(moveX * yLatDir);
+    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir + moveX * yLatDir);
     s16 deltaY = FIXED_TO_INT(fixedDeltaY);
     s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
     playerY += FIXED(safeStepsY);
@@ -192,6 +192,9 @@ void update_player() {
     playerX += FIXED(safeStepsX);
 
     render_direction(WALL_COLOR_IDX);
+    tte_write("#{P:50,0}");
+    tte_erase_line();
+    tte_printf("dist: %d", dt);
 }
 
 
