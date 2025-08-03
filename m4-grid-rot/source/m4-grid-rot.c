@@ -204,7 +204,7 @@ void update_player() {
     // Apply translation per axis
     s16 yDir = lu_sin(playerTheta);
     s16 yLatDir = lu_sin(playerTheta - LU_PI/2);
-    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir) + FIXED_TO_INT(moveX * yLatDir);
+    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir + moveX * yLatDir);
     s16 deltaY = FIXED_TO_INT(fixedDeltaY);
     s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
     playerY += FIXED(safeStepsY);
@@ -212,7 +212,7 @@ void update_player() {
 
     s16 xDir = lu_cos(playerTheta);
     s16 xLatDir = lu_cos(playerTheta - LU_PI/2);
-    s16 fixedDeltaX = FIXED_TO_INT(moveY * xDir) + FIXED_TO_INT(moveX * xLatDir);
+    s16 fixedDeltaX = FIXED_TO_INT(moveY * xDir + moveX * xLatDir);
     s16 deltaX = FIXED_TO_INT(fixedDeltaX);
     s16 safeStepsX = clamp_steps(prevX, deltaX, newY, false);
     playerX += FIXED(safeStepsX);
