@@ -49,17 +49,17 @@ u32 playerPrevX = PLAYER_START_X;
 u32 playerPrevY = PLAYER_START_Y;
 
 // Player rotation
-const u16 PLAYER_START_THETA = FIXED(0);
+const u16 PLAYER_START_THETA = 0;
 u16 playerTheta = PLAYER_START_THETA;
 
 // Player FOV
 const u16 FOV = LU_PI/2;
 
 // Ray length
-const u16 RAY_LENGTH = 30;
+const u16 RAY_LENGTH = 8;
 
 // Player Speed
-const s32 LINEAR_SPEED = 50;
+const s32 LINEAR_SPEED = 20;
 const u16 ANGULAR_SPEED = LU_PI/3000;
 
 // Color Palette
@@ -93,7 +93,7 @@ int pixel_in_collision(u16 x, u16 y){
 void render_direction(u8 color) {
     // distance, no collisions
     m4_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, BLACK_COLOR_IDX);
-    s16 resolution = LU_PI/20;
+    s16 resolution = FOV/10;
     for (s16 i = -FOV/2; i < FOV/2+1; i = i + resolution) {
         s16 dist = RAY_LENGTH;
         s16 xDir = lu_cos(playerTheta + i);
@@ -102,8 +102,7 @@ void render_direction(u8 color) {
             // We need to "snap" the position to a tile, which is why these conversions are done
             u16 xRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX))+j*xDir);
             u16 yRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY))+j*yDir);
-            if (pixel_in_collision(xRay, yRay))
-            {
+            if (pixel_in_collision(xRay, yRay)) {
                 s16 yDist = yRay - FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY)));
                 s16 xDist = xRay - FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX)));
                 dist = sqrt(yDist*yDist + xDist*xDist);
@@ -111,66 +110,22 @@ void render_direction(u8 color) {
             }
         }
         // If wall within range
-        if (dist < RAY_LENGTH)
-        {
-            s16 lineHeight = SCREEN_HEIGHT/dist;
-            s16 offset = SCREEN_HEIGHT/2 - lineHeight/2;
-            u16 num_rays = FOV/resolution;
-            u16 sliceW = SCREEN_WIDTH/num_rays;
-            u16 rayIndex = (i + FOV/2)/resolution;
-            u16 leftX = rayIndex * sliceW;
-            /*
-            tte_write("#{P:50,145}");
-            tte_erase_line();
-            tte_printf("dist: %d", dist);
-            */
+        s16 lineHeight = SCREEN_HEIGHT/dist;
+        s16 offset = SCREEN_HEIGHT/2 - lineHeight/2;
+        u16 num_rays = FOV/resolution;
+        u16 sliceW = SCREEN_WIDTH/num_rays;
+        u16 rayIndex = (i + FOV/2)/resolution;
+        u16 leftX = rayIndex * sliceW;
+        // Draw floor
+        m4_rect(leftX, offset + lineHeight, leftX + sliceW, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
+        // Draw walls
+        if (dist < RAY_LENGTH) {
             m4_rect(leftX, offset, leftX + sliceW, offset + lineHeight, color);
         }
+        tte_write("#{P:50,145}");
+        tte_erase_line();
+        tte_printf("dist: %d", fps);
     }
-    /*
-    for (u16 j = 1; j < RAY_LENGTH + 1; j++) {
-        // We need to "snap" the position to a tile, which is why these conversions are done
-        u16 xRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX))+j*xDir);
-        u16 yRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY))+j*yDir);
-        if (pixel_in_collision(xRay, yRay))
-        {
-            s16 yDist = abs(yRay - FIXED_TO_INT(playerY));
-            s16 xDist = abs(xRay - FIXED_TO_INT(playerX));
-            dist = sqrt((yDist^2) + (xDist^2));
-            if (dist == 0)
-            {
-                dist = 1;
-            }
-            break;
-        }
-    }
-    tte_write("#{P:50,145}");
-    tte_erase_line();
-    tte_printf("dist: %d", dist);
-    m4_rect(SCREEN_WIDTH/2, 0, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT, BLACK_COLOR_IDX);
-    s16 lineHeight = SCREEN_HEIGHT/dist;
-    s16 offset = SCREEN_HEIGHT/2 - lineHeight/2;
-    if (dist < RAY_LENGTH)
-    {
-        m4_rect(SCREEN_WIDTH/2, offset, SCREEN_WIDTH/2 + 10, offset + lineHeight, color);
-    }
-    */
-    /*
-    for (s16 i = -FOV/2; i < FOV/2+1; i = i + LU_PI/275) {
-        s16 xDir = lu_cos(playerTheta + i);
-        s16 yDir = lu_sin(playerTheta + i);
-        for (u16 j = 1; j < RAY_LENGTH + 1; j++) {
-            // We need to "snap" the position to a tile, which is why these conversions are done
-            u16 xRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX))+j*xDir);
-            u16 yRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY))+j*yDir);
-            if (pixel_in_collision(xRay, yRay))
-            {
-                break;
-            }
-            m4_plot(xRay, yRay, color);
-        }
-    }
-    */
 }
 
 static inline s16 clamp_steps(
@@ -204,10 +159,10 @@ void update_player() {
     s16 ticsPerSec = FIXED(dt) / SYSCLK_64;
     s16 linearMove = LINEAR_SPEED * ticsPerSec;
     s16 angularMove = ANGULAR_SPEED * ticsPerSec;
-    if (key_is_down(KEY_UP)) moveY += -linearMove;
-    if (key_is_down(KEY_DOWN)) moveY += linearMove;
-    if (key_is_down(KEY_B)) moveX += -linearMove;
-    if (key_is_down(KEY_A)) moveX += linearMove;
+    if (key_is_down(KEY_UP)) moveY += linearMove;
+    if (key_is_down(KEY_DOWN)) moveY += -linearMove;
+    if (key_is_down(KEY_B)) moveX += linearMove;
+    if (key_is_down(KEY_A)) moveX += -linearMove;
     if (key_is_down(KEY_LEFT)) rotateTheta += -angularMove;
     if (key_is_down(KEY_RIGHT)) rotateTheta += angularMove;
     // Handle moving diagonally at the same speed
@@ -216,32 +171,27 @@ void update_player() {
         moveX = moveX*0.707;
         moveY = moveY*0.707;
     }
-    tte_write("#{P:50,0}");
-    tte_erase_line();
-    tte_printf("Player X: %d", FIXED_TO_INT(playerX));
-    tte_write("#{P:50,10}");
-    tte_erase_line();
-    tte_printf("Player Y: %d", FIXED_TO_INT(playerY));
-    tte_write("#{P:50,105}");
-    tte_write("#{P:50,20}");
-    tte_erase_line();
-    tte_printf("FPS: %d", fps);
-
-    // Apply Y movement first
-    // Get distance to walls
-    s16 deltaY = FIXED_TO_INT(moveY);
-    s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
-    playerY += FIXED(safeStepsY);
-    newY = FIXED_TO_INT(playerY);
-
-    s16 deltaX = FIXED_TO_INT(moveX);
-    s16 safeStepsX = clamp_steps(prevX, deltaX, newY, false);
-    playerX += FIXED(safeStepsX);
 
     // Apply Rotation. No need to check for collisions in a raycaster
     playerTheta += rotateTheta;
 
-    render_direction(1);
+    // Apply translation per axis
+    s16 yDir = lu_sin(playerTheta);
+    s16 yLatDir = lu_sin(playerTheta - LU_PI/2);
+    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir) + FIXED_TO_INT(moveX * yLatDir);
+    s16 deltaY = FIXED_TO_INT(fixedDeltaY);
+    s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
+    playerY += FIXED(safeStepsY);
+    newY = FIXED_TO_INT(playerY);
+
+    s16 xDir = lu_cos(playerTheta);
+    s16 xLatDir = lu_cos(playerTheta - LU_PI/2);
+    s16 fixedDeltaX = FIXED_TO_INT(moveY * xDir) + FIXED_TO_INT(moveX * xLatDir);
+    s16 deltaX = FIXED_TO_INT(fixedDeltaX);
+    s16 safeStepsX = clamp_steps(prevX, deltaX, newY, false);
+    playerX += FIXED(safeStepsX);
+
+    render_direction(WALL_COLOR_IDX);
 }
 
 
