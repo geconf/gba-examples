@@ -5,7 +5,6 @@
 #include <tonc.h>
 #include <tonc_core.h>
 #include <stdlib.h>
-#include <math.h>
 
 // GBA constants
 #define SCREEN_WIDTH  240
@@ -18,7 +17,7 @@
 // Convert to Fixed point
 #define FIXED(x) ((int)((x) * (1 << FIXED_SHIFT))) 
 // Convert to integer. It adds half the divisor to round up
-#define FIXED_TO_INT(x) ((x + (1 << (FIXED_SHIFT - 1))) >> FIXED_SHIFT) 
+#define FIXED_TO_INT(x) ((x + (1 << (FIXED_SHIFT - 1))) >> FIXED_SHIFT)
 #define LU_PI 0x8000
 
 // Map Data
@@ -48,18 +47,18 @@ u32 playerPrevX = PLAYER_START_X;
 u32 playerPrevY = PLAYER_START_Y;
 
 // Player rotation
-const u16 PLAYER_START_THETA = FIXED(0);
-u16 playerTheta = PLAYER_START_THETA;
+const u32 PLAYER_START_THETA = FIXED(0);
+u32 playerTheta = PLAYER_START_THETA;
 
 // Player FOV
-const u16 FOV = LU_PI/2;
+const s32 FOV = LU_PI/2;
 
 // Ray length
-const u16 RAY_LENGTH = 30;
+const u32 RAY_LENGTH = 30;
 
 // Player Speed
-const s32 LINEAR_SPEED = 50;
-const u16 ANGULAR_SPEED = LU_PI/3000;
+const s32 LINEAR_SPEED = 5;
+const s32 ANGULAR_SPEED = LU_PI/3000;
 
 // Color Palette
 const u16 BLACK_COLOR_IDX = 0;
@@ -70,9 +69,8 @@ const u16 WALL_COLOR_IDX = 4;
 
 // Time
 const u32 SYSCLK_64 = 262144;
-const u32 SYSCLK_64_HALF = 262144/2;
-static u16 lastTicks;
-static u16 fps;
+static u32 lastTicks;
+static u32 fps;
 static u16 dt;
 
 static inline u8* back_page(void) {
@@ -80,12 +78,16 @@ static inline u8* back_page(void) {
          + ((REG_DISPCNT & DCNT_PAGE) ? 0x0000 : 0xA000);
 }
 
+static inline s32 fixed_mul(s32 a, s32 b) {
+    return (s32)(((s64)a * b) >> FIXED_SHIFT);
+}
 
-void draw_tile(u16 x, u16 y, u16 color) {
+
+void draw_tile(u32 x, u32 y, u16 color) {
     m4_rect(x, y, x + TILE_SIZE, y + TILE_SIZE, color);
 }
 
-void draw_map(u16 x, u16 y) {
+void draw_map(u32 x, u32 y) {
     for (u16 i = 0; i < MAP_HEIGHT; i++) {
         for (u16 j = 0; j < MAP_WIDTH; j++) {
             u16 color = FLOOR_COLOR_IDX;
@@ -98,26 +100,26 @@ void draw_map(u16 x, u16 y) {
     }
 }
 
-void render_player(u16 x, u16 y, u16 color){
+void render_player(u32 x, u32 y, u16 color){
     m4_plot(x, y, color);
 }
 
 
-int pixel_in_collision(u16 x, u16 y){
+int pixel_in_collision(u32 x, u32 y){
     int playerXTile = (x-MAP_X)/TILE_SIZE;
     int playerYTile = (y-MAP_Y)/TILE_SIZE;
     return worldMap[playerYTile][playerXTile];
 }
 
 
-void render_direction(u8 color) {
+void render_direction(u16 color) {
     tte_write("#{P:50,105}");
     tte_erase_line();
     tte_printf("Player theta: %d", playerTheta);
     tte_write("#{P:50,115}");
     tte_erase_line();
-    u16 x_dir = lu_cos(playerTheta);
-    u16 y_dir = lu_sin(playerTheta);
+    u32 x_dir = lu_cos(playerTheta);
+    u32 y_dir = lu_sin(playerTheta);
     tte_printf("Cos Player theta: %d", x_dir);
     tte_write("#{P:50,125}");
     tte_erase_line();
@@ -128,13 +130,13 @@ void render_direction(u8 color) {
     tte_write("#{P:50,145}");
     tte_erase_line();
     tte_printf("Y dir to plot: %d", FIXED_TO_INT(playerY+y_dir));
-    for (s16 i = -FOV/2; i < FOV/2+1; i = i + LU_PI/275) {
-        s16 xDir = lu_cos(playerTheta + i);
-        s16 yDir = lu_sin(playerTheta + i);
-        for (u16 j = 1; j < RAY_LENGTH + 1; j++) {
+    for (s32 i = -FOV/2; i < FOV/2+1; i = i + LU_PI/275) {
+        s32 xDir = lu_cos(playerTheta + i);
+        s32 yDir = lu_sin(playerTheta + i);
+        for (u32 j = 1; j < RAY_LENGTH + 1; j++) {
             // We need to "snap" the position to a tile, which is why these conversions are done
-            u16 xRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX))+j*xDir);
-            u16 yRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY))+j*yDir);
+            u32 xRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX))+j*xDir);
+            u32 yRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY))+j*yDir);
             if (pixel_in_collision(xRay, yRay))
             {
                 break;
@@ -144,37 +146,35 @@ void render_direction(u8 color) {
     }
 }
 
+
 static inline s16 clamp_steps(
-    s16 currentAxisCoord,
-    s16 delta,
-    s16 otherAxisCoord,
+    u32 currentAxisCoord,
+    s32 delta,
+    u32 otherAxisCoord,
     bool isVertical
     ) 
 {
     if (delta == 0) return 0;
-    s16  sign  = (delta > 0) ?  1 : -1;
-    u16  steps = abs(delta);
+    s32  sign  = (delta > 0) ?  1 : -1;
+    u32  steps = abs(delta);
     for (u16 i = 1; i <= steps; ++i) {
-        s16 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
-        s16 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
-        if (pixel_in_collision(x, y))
+        u32 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
+        u32 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
+        if (pixel_in_collision(FIXED_TO_INT(x), FIXED_TO_INT(y)))
             return sign * (i - 1);
     }
     return sign * steps;
 }
 
-void update_player() {
-    u16 prevX = FIXED_TO_INT(playerX);
-    u16 prevY = FIXED_TO_INT(playerY);
-    u16 newX = prevX, newY = prevY;
 
+void update_player() {
     key_poll();
 
-    s16 moveX = 0, moveY = 0, rotateTheta = 0;
+    s32 moveX = 0, moveY = 0, rotateTheta = 0;
 
-    s16 ticsPerSec = FIXED(dt) / SYSCLK_64;
-    s16 linearMove = LINEAR_SPEED * ticsPerSec;
-    s16 angularMove = ANGULAR_SPEED * ticsPerSec;
+    u32 ticsPerSec = FIXED(dt) / SYSCLK_64;
+    s32 linearMove = LINEAR_SPEED * ticsPerSec;
+    s32 angularMove = ANGULAR_SPEED * ticsPerSec;
     if (key_is_down(KEY_UP)) moveY += linearMove;
     if (key_is_down(KEY_DOWN)) moveY += -linearMove;
     if (key_is_down(KEY_B)) moveX += linearMove;
@@ -187,6 +187,22 @@ void update_player() {
         moveX = moveX*0.707;
         moveY = moveY*0.707;
     }
+    // Apply Rotation. No need to check for collisions in a raycaster
+    playerTheta += rotateTheta;
+
+    // Apply translation per axis
+    s32 yDir = lu_sin(playerTheta);
+    s32 yLatDir = lu_sin(playerTheta - LU_PI/2);
+    s32 deltaY = FIXED_TO_INT(moveY * yDir + moveX * yLatDir);
+    s32 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
+    playerY += safeStepsY;
+
+    s32 xDir = lu_cos(playerTheta);
+    s32 xLatDir = lu_cos(playerTheta - LU_PI/2);
+    s32 deltaX = FIXED_TO_INT(moveY * xDir + moveX * xLatDir);
+    s32 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
+    playerX += safeStepsX;
+
     tte_write("#{P:50,0}");
     tte_erase_line();
     tte_printf("Player X: %d", FIXED_TO_INT(playerX));
@@ -198,27 +214,7 @@ void update_player() {
     tte_erase_line();
     tte_printf("FPS: %d", fps);
 
-    // Apply Rotation. No need to check for collisions in a raycaster
-    playerTheta += rotateTheta;
-
-    // Apply translation per axis
-    s16 yDir = lu_sin(playerTheta);
-    s16 yLatDir = lu_sin(playerTheta - LU_PI/2);
-    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir + moveX * yLatDir);
-    s16 deltaY = FIXED_TO_INT(fixedDeltaY);
-    s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
-    playerY += FIXED(safeStepsY);
-    newY = FIXED_TO_INT(playerY);
-
-    s16 xDir = lu_cos(playerTheta);
-    s16 xLatDir = lu_cos(playerTheta - LU_PI/2);
-    s16 fixedDeltaX = FIXED_TO_INT(moveY * xDir + moveX * xLatDir);
-    s16 deltaX = FIXED_TO_INT(fixedDeltaX);
-    s16 safeStepsX = clamp_steps(prevX, deltaX, newY, false);
-    playerX += FIXED(safeStepsX);
-    newX = FIXED_TO_INT(playerX);
-
-    render_player(newX, newY, PLAYER_COLOR_IDX);
+    render_player(FIXED_TO_INT(playerX), FIXED_TO_INT(playerY), PLAYER_COLOR_IDX);
     render_direction(1);
 }
 
