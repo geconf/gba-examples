@@ -231,7 +231,7 @@ void update_player() {
     tte_printf("FPS: %d", fps);
 
     render_player(fixed_to_int(playerX), fixed_to_int(playerY), PLAYER_COLOR_IDX);
-    render_direction(1);
+    render_direction(DIR_COLOR_IDX);
 }
 
 
