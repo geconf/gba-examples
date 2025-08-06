@@ -107,7 +107,8 @@ int pixel_in_collision(u32 x, u32 y){
 
 void render_direction(u8 color) {
     // distance, no collisions
-    m4_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, BLACK_COLOR_IDX);
+    //m4_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, BLACK_COLOR_IDX);
+    m4_fill(BLACK_COLOR_IDX);
     u32 resolution = FOV/40;
     for (s16 i = -FOV/2; i < FOV/2+1; i = i + resolution) {
         s32 dist = RAY_LENGTH;
