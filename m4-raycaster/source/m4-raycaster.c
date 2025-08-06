@@ -3,7 +3,6 @@
 #include "tonc_tte.h"
 #include "tonc_video.h"
 #include <stdlib.h>
-#include <math.h>
 
 
 // Fixed-point math
@@ -109,28 +108,26 @@ int pixel_in_collision(u32 x, u32 y){
 void render_direction(u8 color) {
     // distance, no collisions
     m4_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, BLACK_COLOR_IDX);
-    s16 resolution = FOV/10;
+    u32 resolution = FOV/40;
     for (s16 i = -FOV/2; i < FOV/2+1; i = i + resolution) {
-        s16 dist = RAY_LENGTH;
-        s16 xDir = lu_cos(playerTheta + i);
-        s16 yDir = lu_sin(playerTheta + i);
-        for (u16 j = 1; j < RAY_LENGTH + 1; j++) {
-            u16 xRay = fixed_to_int(int_to_fixed(fixed_to_int(playerX))+j*xDir);
-            u16 yRay = fixed_to_int(int_to_fixed(fixed_to_int(playerY))+j*yDir);
-            if (pixel_in_collision(xRay, yRay)) {
-                s16 yDist = yRay - fixed_to_int(int_to_fixed(fixed_to_int(playerY)));
-                s16 xDist = xRay - fixed_to_int(int_to_fixed(fixed_to_int(playerX)));
-                dist = sqrt(yDist*yDist + xDist*xDist);
+        s32 dist = RAY_LENGTH;
+        s32 xDir = lu_cos(playerTheta + i);
+        s32 yDir = lu_sin(playerTheta + i);
+        for (u32 j = 1; j < RAY_LENGTH + 1; j++) {
+            u32 xRay = playerX+j*xDir;
+            u32 yRay = playerY+j*yDir;
+            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+                dist = j;
                 break;
             }
         }
         // If wall within range
-        s16 lineHeight = SCREEN_HEIGHT/dist;
-        s16 offset = SCREEN_HEIGHT/2 - lineHeight/2;
-        u16 num_rays = FOV/resolution;
-        u16 sliceW = SCREEN_WIDTH/num_rays;
-        u16 rayIndex = (i + FOV/2)/resolution;
-        u16 leftX = rayIndex * sliceW;
+        s32 lineHeight = SCREEN_HEIGHT/dist;
+        s32 offset = SCREEN_HEIGHT/2 - lineHeight/2;
+        u32 num_rays = FOV/resolution;
+        u32 sliceW = SCREEN_WIDTH/num_rays;
+        u32 rayIndex = (i + FOV/2)/resolution;
+        u32 leftX = rayIndex * sliceW;
         // Draw floor
         m4_rect(leftX, offset + lineHeight, leftX + sliceW, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
         // Draw walls
@@ -139,7 +136,7 @@ void render_direction(u8 color) {
         }
         tte_write("#{P:50,145}");
         tte_erase_line();
-        tte_printf("dist: %d", fps);
+        tte_printf("dist: %d", dist);
     }
 }
 
@@ -195,7 +192,7 @@ void update_player() {
 
     s16 xDir = lu_cos(playerTheta);
     s16 xLatDir = lu_cos(playerTheta - LU_PI/2);
-    s16 deltaX = fixed_to_int(moveY * xDir) + fixed_to_int(moveX * xLatDir);
+    s16 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
     s16 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
     playerX += safeStepsX;
 
