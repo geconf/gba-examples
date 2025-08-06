@@ -176,11 +176,11 @@ static inline s16 clamp_steps(
     if (delta == 0) return 0;
     s32  sign  = (delta > 0) ?  1 : -1;
     u32  steps = abs(delta);
-    for (u16 i = 1; i <= steps; ++i) {
+    for (u16 i = 1; i <= steps; i = i + TILE_SIZE) {
         u32 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
         u32 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
         if (pixel_in_collision(fixed_to_int(x), fixed_to_int(y)))
-            return sign * (i - 1);
+            return sign * (i - TILE_SIZE);
     }
     return sign * steps;
 }
@@ -212,13 +212,13 @@ void update_player() {
     // Apply translation per axis
     s32 yDir = lu_sin(playerTheta);
     s32 yLatDir = lu_sin(playerTheta - LU_PI/2);
-    s32 deltaY = fixed_to_int(moveY * yDir + moveX * yLatDir);
+    s32 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
     s32 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
     playerY += safeStepsY;
 
     s32 xDir = lu_cos(playerTheta);
     s32 xLatDir = lu_cos(playerTheta - LU_PI/2);
-    s32 deltaX = fixed_to_int(moveY * xDir + moveX * xLatDir);
+    s32 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
     s32 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
     playerX += safeStepsX;
 
