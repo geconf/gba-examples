@@ -1,35 +1,57 @@
 #include "tonc_input.h"
 #include "tonc_math.h"
-#include "tonc_memdef.h"
 #include "tonc_tte.h"
 #include "tonc_video.h"
-#include <math.h>
-#include <tonc.h>
-#include <tonc_core.h>
 #include <stdlib.h>
+#include <math.h>
 
-// GBA constants
-#define SCREEN_WIDTH  240
-#define SCREEN_HEIGHT 160
-#define VRAM ((volatile u16*)0x06000000)
 
-// Math constants
 // Fixed-point math
-#define FIXED_SHIFT  12
-// Convert to Fixed point
-#define FIXED(x) ((int)((x) * (1 << FIXED_SHIFT))) 
-// Convert to integer. It adds half the divisor to round up
-#define FIXED_TO_INT(x) ((x + (1 << (FIXED_SHIFT - 1))) >> FIXED_SHIFT) 
-#define LU_PI 0x8000
+enum FixedShiftConsts {
+    FIXED_SHIFT = 12,
+    FIXED_HALF = 1 << (FIXED_SHIFT - 1),
+};
 
-// Map Data
-const u16 TILE_SIZE = 8;
-// Simple 8×8 maze (1 = wall, 0 = empty space)
-const u16 MAP_WIDTH = 8;
-const u16 MAP_HEIGHT = 8;
-const u16 MAP_X = 80;
-const u16 MAP_Y = 40;
-const u16 worldMap[8][8] = {
+// Convert to Fixed point for macros
+#define INT_TO_FIXED(x) ((int)((x) << FIXED_SHIFT))
+
+enum MathConsts {
+    LU_PI = 0x8000,
+};
+
+enum TimeConsts {
+    SYSCLK_64 = 262144,
+};
+
+enum MapConsts {
+    TILE_SIZE = 8,
+    MAP_WIDTH = 8,
+    MAP_HEIGHT = 8,
+    MAP_X = 80,
+    MAP_Y = 40,
+};
+
+enum ColorConsts {
+    BLACK_COLOR_IDX = 0,
+    DIR_COLOR_IDX = 1,
+    PLAYER_COLOR_IDX = 2,
+    FLOOR_COLOR_IDX = 3,
+    WALL_COLOR_IDX = 4,
+};
+
+
+enum PlayerConsts {
+    FOV = LU_PI/2,
+    RAY_LENGTH = 30,
+    LINEAR_SPEED = 5,
+    ANGULAR_SPEED = LU_PI/3000,
+    PLAYER_START_X = INT_TO_FIXED(MAP_X+1*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
+    PLAYER_START_Y = INT_TO_FIXED(MAP_Y+6*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
+    PLAYER_START_THETA = INT_TO_FIXED(0),
+};
+
+
+static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1},
     {1, 0, 0, 0, 0, 0, 0, 1},
     {1, 0, 1, 0, 1, 0, 1, 1},
@@ -40,40 +62,32 @@ const u16 worldMap[8][8] = {
     {1, 1, 1, 1, 1, 1, 1, 1}
 };
 
+// Convert to Fixed point
+static inline s32 int_to_fixed(s32 x) {
+    return x << FIXED_SHIFT;
+}
+
+// Convert to integer. It adds half the divisor to round up
+static inline s32 fixed_to_int(s32 x) {
+    const s32 half = 1 << (FIXED_SHIFT - 1);
+    if (x >= 0) {
+        return (x + half) >> FIXED_SHIFT;
+    }
+    else {
+        return (x - half) >> FIXED_SHIFT;
+    }
+}
+
 // Player position
-const u32 PLAYER_START_X = FIXED(MAP_X+1*TILE_SIZE) + FIXED(TILE_SIZE/2);
-const u32 PLAYER_START_Y = FIXED(MAP_Y+6*TILE_SIZE) + FIXED(TILE_SIZE/2);
-u32 playerX = PLAYER_START_X;
-u32 playerY = PLAYER_START_Y;
-u32 playerPrevX = PLAYER_START_X;
-u32 playerPrevY = PLAYER_START_Y;
+static u32 playerX = PLAYER_START_X;
+static u32 playerY = PLAYER_START_Y;
 
 // Player rotation
-const u16 PLAYER_START_THETA = 0;
-u16 playerTheta = PLAYER_START_THETA;
-
-// Player FOV
-const u16 FOV = LU_PI/2;
-
-// Ray length
-const u16 RAY_LENGTH = 8;
-
-// Player Speed
-const s32 LINEAR_SPEED = 20;
-const u16 ANGULAR_SPEED = LU_PI/3000;
-
-// Color Palette
-const u16 BLACK_COLOR_IDX = 0;
-const u16 DIR_COLOR_IDX = 1;
-const u16 PLAYER_COLOR_IDX = 2;
-const u16 FLOOR_COLOR_IDX = 3;
-const u16 WALL_COLOR_IDX = 4;
+static u32 playerTheta = PLAYER_START_THETA;
 
 // Time
-const u32 SYSCLK_64 = 262144;
-const u32 SYSCLK_64_HALF = 262144/2;
-static u16 lastTicks;
-static u16 fps;
+static u32 lastTicks;
+static u32 fps;
 static u16 dt;
 
 static inline u8* back_page(void) {
@@ -81,14 +95,16 @@ static inline u8* back_page(void) {
          + ((REG_DISPCNT & DCNT_PAGE) ? 0x0000 : 0xA000);
 }
 
+static inline s32 fixed_mul(s32 a, s32 b) {
+    return (s32)(((s64)a * b) >> FIXED_SHIFT);
+}
 
 
-int pixel_in_collision(u16 x, u16 y){
+int pixel_in_collision(u32 x, u32 y){
     int playerXTile = (x-MAP_X)/TILE_SIZE;
     int playerYTile = (y-MAP_Y)/TILE_SIZE;
     return worldMap[playerYTile][playerXTile];
 }
-
 
 void render_direction(u8 color) {
     // distance, no collisions
@@ -99,12 +115,11 @@ void render_direction(u8 color) {
         s16 xDir = lu_cos(playerTheta + i);
         s16 yDir = lu_sin(playerTheta + i);
         for (u16 j = 1; j < RAY_LENGTH + 1; j++) {
-            // We need to "snap" the position to a tile, which is why these conversions are done
-            u16 xRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX))+j*xDir);
-            u16 yRay = FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY))+j*yDir);
+            u16 xRay = fixed_to_int(int_to_fixed(fixed_to_int(playerX))+j*xDir);
+            u16 yRay = fixed_to_int(int_to_fixed(fixed_to_int(playerY))+j*yDir);
             if (pixel_in_collision(xRay, yRay)) {
-                s16 yDist = yRay - FIXED_TO_INT(FIXED(FIXED_TO_INT(playerY)));
-                s16 xDist = xRay - FIXED_TO_INT(FIXED(FIXED_TO_INT(playerX)));
+                s16 yDist = yRay - fixed_to_int(int_to_fixed(fixed_to_int(playerY)));
+                s16 xDist = xRay - fixed_to_int(int_to_fixed(fixed_to_int(playerX)));
                 dist = sqrt(yDist*yDist + xDist*xDist);
                 break;
             }
@@ -129,34 +144,30 @@ void render_direction(u8 color) {
 }
 
 static inline s16 clamp_steps(
-    s16 currentAxisCoord,
-    s16 delta,
-    s16 otherAxisCoord,
+    u32 currentAxisCoord,
+    s32 delta,
+    u32 otherAxisCoord,
     bool isVertical
     ) 
 {
     if (delta == 0) return 0;
-    s16  sign  = (delta > 0) ?  1 : -1;
-    u16  steps = abs(delta);
-    for (u16 i = 1; i <= steps; ++i) {
-        s16 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
-        s16 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
-        if (pixel_in_collision(x, y))
-            return sign * (i - 1);
+    s32  sign  = (delta > 0) ?  1 : -1;
+    u32  steps = abs(delta);
+    for (u16 i = 1; i <= steps; i = i + TILE_SIZE) {
+        u32 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
+        u32 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
+        if (pixel_in_collision(fixed_to_int(x), fixed_to_int(y)))
+            return sign * (i - TILE_SIZE);
     }
     return sign * steps;
 }
 
 void update_player() {
-    u16 prevX = FIXED_TO_INT(playerX);
-    u16 prevY = FIXED_TO_INT(playerY);
-    u16 newY = prevY;
-
     key_poll();
 
     s16 moveX = 0, moveY = 0, rotateTheta = 0;
 
-    s16 secPerFrame = FIXED(dt) / SYSCLK_64;
+    s16 secPerFrame = int_to_fixed(dt) / SYSCLK_64;
     s16 linearMove = LINEAR_SPEED * secPerFrame;
     s16 angularMove = ANGULAR_SPEED * secPerFrame;
     if (key_is_down(KEY_UP)) moveY += linearMove;
@@ -178,23 +189,20 @@ void update_player() {
     // Apply translation per axis
     s16 yDir = lu_sin(playerTheta);
     s16 yLatDir = lu_sin(playerTheta - LU_PI/2);
-    s16 fixedDeltaY = FIXED_TO_INT(moveY * yDir + moveX * yLatDir);
-    s16 deltaY = FIXED_TO_INT(fixedDeltaY);
-    s16 safeStepsY = clamp_steps(prevY, deltaY, prevX, true);
-    playerY += FIXED(safeStepsY);
-    newY = FIXED_TO_INT(playerY);
+    s16 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
+    s16 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
+    playerY += safeStepsY;
 
     s16 xDir = lu_cos(playerTheta);
     s16 xLatDir = lu_cos(playerTheta - LU_PI/2);
-    s16 fixedDeltaX = FIXED_TO_INT(moveY * xDir) + FIXED_TO_INT(moveX * xLatDir);
-    s16 deltaX = FIXED_TO_INT(fixedDeltaX);
-    s16 safeStepsX = clamp_steps(prevX, deltaX, newY, false);
-    playerX += FIXED(safeStepsX);
+    s16 deltaX = fixed_to_int(moveY * xDir) + fixed_to_int(moveX * xLatDir);
+    s16 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
+    playerX += safeStepsX;
 
     render_direction(WALL_COLOR_IDX);
     tte_write("#{P:50,0}");
     tte_erase_line();
-    tte_printf("dist: %d", dt);
+    tte_printf("fps: %d", fps);
 }
 
 
