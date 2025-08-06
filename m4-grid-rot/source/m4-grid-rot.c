@@ -1,10 +1,7 @@
 #include "tonc_input.h"
 #include "tonc_math.h"
-#include "tonc_memdef.h"
 #include "tonc_tte.h"
 #include "tonc_video.h"
-#include <tonc.h>
-#include <tonc_core.h>
 #include <stdlib.h>
 
 
