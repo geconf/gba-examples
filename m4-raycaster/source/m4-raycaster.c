@@ -41,9 +41,9 @@ enum ColorConsts {
 
 enum PlayerConsts {
     FOV = LU_PI/2,
-    RAY_LENGTH = 30,
+    RAY_LENGTH = INT_TO_FIXED(30),
     LINEAR_SPEED = 5,
-    ANGULAR_SPEED = LU_PI/3000,
+    ANGULAR_SPEED = LU_PI/10000,
     PLAYER_START_X = INT_TO_FIXED(MAP_X+1*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
     PLAYER_START_Y = INT_TO_FIXED(MAP_Y+6*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
     PLAYER_START_THETA = INT_TO_FIXED(0),
@@ -106,24 +106,23 @@ int pixel_in_collision(u32 x, u32 y){
 }
 
 void render_direction(u8 color) {
-    // distance, no collisions
-    //m4_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, BLACK_COLOR_IDX);
     m4_fill(BLACK_COLOR_IDX);
     u32 resolution = FOV/40;
     for (s16 i = -FOV/2; i < FOV/2+1; i = i + resolution) {
         s32 dist = RAY_LENGTH;
         s32 xDir = lu_cos(playerTheta + i);
         s32 yDir = lu_sin(playerTheta + i);
-        for (u32 j = 1; j < RAY_LENGTH + 1; j++) {
-            u32 xRay = playerX+j*xDir;
-            u32 yRay = playerY+j*yDir;
+        for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 1) {
+            u32 z = int_to_fixed(j);
+            u32 xRay = playerX+fixed_mul(z, xDir);
+            u32 yRay = playerY+fixed_mul(z, yDir);
             if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-                dist = j;
+                dist = z;
                 break;
             }
         }
         // If wall within range
-        s32 lineHeight = SCREEN_HEIGHT/dist;
+        s32 lineHeight = SCREEN_HEIGHT/fixed_to_int(dist);
         s32 offset = SCREEN_HEIGHT/2 - lineHeight/2;
         u32 num_rays = FOV/resolution;
         u32 sliceW = SCREEN_WIDTH/num_rays;
