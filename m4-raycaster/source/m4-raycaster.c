@@ -107,11 +107,11 @@ int pixel_in_collision(u32 x, u32 y){
 
 void render_direction(u8 color) {
     m4_fill(BLACK_COLOR_IDX);
-    u32 resolution = FOV/40;
-    for (s16 i = -FOV/2; i < FOV/2+1; i = i + resolution) {
+    for (s16 i = 0; i < SCREEN_WIDTH; i++ ) {
+        s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
         s32 dist = RAY_LENGTH;
-        s32 xDir = lu_cos(playerTheta + i);
-        s32 yDir = lu_sin(playerTheta + i);
+        s32 xDir = lu_cos(rayAngle);
+        s32 yDir = lu_sin(rayAngle);
         for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 1) {
             u32 z = int_to_fixed(j);
             u32 xRay = playerX+fixed_mul(z, xDir);
@@ -124,20 +124,16 @@ void render_direction(u8 color) {
         // If wall within range
         s32 lineHeight = SCREEN_HEIGHT/fixed_to_int(dist);
         s32 offset = SCREEN_HEIGHT/2 - lineHeight/2;
-        u32 num_rays = FOV/resolution;
-        u32 sliceW = SCREEN_WIDTH/num_rays;
-        u32 rayIndex = (i + FOV/2)/resolution;
-        u32 leftX = rayIndex * sliceW;
         // Draw floor
-        m4_rect(leftX, offset + lineHeight, leftX + sliceW, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
+        m4_rect(i, offset + lineHeight, i + 1, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
         // Draw walls
         if (dist < RAY_LENGTH) {
-            m4_rect(leftX, offset, leftX + sliceW, offset + lineHeight, color);
+            m4_rect(i, offset, i + 1, offset + lineHeight, color);
         }
-        tte_write("#{P:50,145}");
-        tte_erase_line();
-        tte_printf("dist: %d", dist);
     }
+    tte_write("#{P:50,145}");
+    tte_erase_line();
+    tte_printf("dist: %d", 1);
 }
 
 static inline s16 clamp_steps(
