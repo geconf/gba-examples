@@ -24,8 +24,8 @@ enum TimeConsts {
 
 enum MapConsts {
     TILE_SIZE = 8,
-    MAP_WIDTH = 8,
-    MAP_HEIGHT = 8,
+    MAP_WIDTH = 9,
+    MAP_HEIGHT = 9,
     MAP_X = 80,
     MAP_Y = 40,
 };
@@ -35,7 +35,8 @@ enum ColorConsts {
     DIR_COLOR_IDX = 1,
     PLAYER_COLOR_IDX = 2,
     FLOOR_COLOR_IDX = 3,
-    WALL_COLOR_IDX = 4,
+    LIGHT_WALL_COLOR_IDX = 4,
+    DARK_WALL_COLOR_IDX = 5,
 };
 
 
@@ -44,21 +45,21 @@ enum PlayerConsts {
     RAY_LENGTH = INT_TO_FIXED(30),
     LINEAR_SPEED = 5,
     ANGULAR_SPEED = LU_PI/10000,
-    PLAYER_START_X = INT_TO_FIXED(MAP_X+1*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
-    PLAYER_START_Y = INT_TO_FIXED(MAP_Y+6*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
+    PLAYER_START_X = INT_TO_FIXED(MAP_X+2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
+    PLAYER_START_Y = INT_TO_FIXED(MAP_Y+5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
     PLAYER_START_THETA = INT_TO_FIXED(0),
 };
 
 
 static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
-    {1, 1, 1, 1, 1, 1, 1, 1},
-    {1, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 1, 0, 1, 0, 1, 1},
-    {1, 0, 1, 0, 1, 0, 0, 1},
-    {1, 0, 0, 0, 1, 1, 0, 1},
-    {1, 0, 1, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 1, 0, 1},
-    {1, 1, 1, 1, 1, 1, 1, 1}
+    {1, 1, 1, 1, 1, 1, 1, 1, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 1, 1, 0, 0, 1},
+    {1, 0, 0, 0, 1, 1, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
 // Convert to Fixed point
@@ -105,11 +106,58 @@ int pixel_in_collision(u32 x, u32 y){
     return worldMap[playerYTile][playerXTile];
 }
 
-void render_direction(u8 color) {
+static inline s32 fixed_div(s32 a, s32 b) {
+    return (s32)(((s64)a << FIXED_SHIFT) / b);
+}
+static inline s32 fixed_abs(s32 x) {
+    return x < 0 ? -x : x;
+}
+
+void render_direction() {
     m4_fill(BLACK_COLOR_IDX);
+    m4_rect(0, SCREEN_HEIGHT/2, SCREEN_WIDTH, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
+    s32 dist = RAY_LENGTH;
+    /*
+    s32 here = 0;
+    s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(200)/SCREEN_WIDTH), FOV);
+    s32 xDir = lu_cos(rayAngle);
+    s32 yDir = lu_sin(rayAngle);
+    for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 1) {
+        u32 z = int_to_fixed(j);
+        u32 xRay = playerX+fixed_mul(z, xDir);
+        u32 yRay = playerY+fixed_mul(z, yDir);
+        if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+            dist = int_to_fixed(j - 1);
+            break;
+        }
+    }
+    s32 xDist = fixed_mul(dist, xDir);
+    s32 yDist = fixed_mul(dist, yDir);
+    for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
+        u32 xRay = playerX + xDist + fixed_mul(j, xDir);
+        u32 yRay = playerY + yDist + fixed_mul(j, yDir);
+        here++;
+        if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+            dist += j;
+            break;
+        }
+    }
+    s32 height = SCREEN_HEIGHT/fixed_to_int(dist);
+    tte_write("#{P:50,115}");
+    tte_erase_line();
+    tte_printf("test: %d", height);
+    tte_write("#{P:50,125}");
+    tte_erase_line();
+    tte_printf("cnt: %d", here);
+    tte_write("#{P:50,135}");
+    tte_erase_line();
+    tte_printf("Player X: %d", playerX);
+    tte_write("#{P:50,145}");
+    tte_erase_line();
+    tte_printf("dist: %d", dist);
+    */
     for (s16 i = 0; i < SCREEN_WIDTH; i++ ) {
         s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
-        s32 dist = RAY_LENGTH;
         s32 xDir = lu_cos(rayAngle);
         s32 yDir = lu_sin(rayAngle);
         for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 1) {
@@ -117,23 +165,37 @@ void render_direction(u8 color) {
             u32 xRay = playerX+fixed_mul(z, xDir);
             u32 yRay = playerY+fixed_mul(z, yDir);
             if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-                dist = z;
+                dist = int_to_fixed(j-1);
+                break;
+            }
+        }
+        s32 xDist = fixed_mul(dist, xDir);
+        s32 yDist = fixed_mul(dist, yDir);
+        for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
+            u32 xRay = playerX + xDist + fixed_mul(j, xDir);
+            u32 yRay = playerY + yDist + fixed_mul(j, yDir);
+            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+                dist += j - 1;
                 break;
             }
         }
         // If wall within range
-        s32 lineHeight = SCREEN_HEIGHT/fixed_to_int(dist);
-        s32 offset = SCREEN_HEIGHT/2 - lineHeight/2;
-        // Draw floor
-        m4_rect(i, offset + lineHeight, i + 1, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
+        s32 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist/8);
+        if (lineHeight > int_to_fixed(SCREEN_WIDTH))
+        {
+            lineHeight = int_to_fixed(SCREEN_WIDTH);
+        }
+        s32 offset = int_to_fixed(SCREEN_HEIGHT)/2 - lineHeight/2;
+        if (offset < 0)
+        {
+            offset = 0;
+        }
         // Draw walls
+        u16 wallColor = LIGHT_WALL_COLOR_IDX;
         if (dist < RAY_LENGTH) {
-            m4_rect(i, offset, i + 1, offset + lineHeight, color);
+            m4_rect(i, fixed_to_int(offset), i + 1, fixed_to_int(offset + lineHeight), wallColor);
         }
     }
-    tte_write("#{P:50,145}");
-    tte_erase_line();
-    tte_printf("dist: %d", 1);
 }
 
 static inline s16 clamp_steps(
@@ -192,10 +254,10 @@ void update_player() {
     s16 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
     playerX += safeStepsX;
 
-    render_direction(WALL_COLOR_IDX);
-    tte_write("#{P:50,0}");
-    tte_erase_line();
-    tte_printf("fps: %d", fps);
+    render_direction();
+    //tte_write("#{P:50,0}");
+    //tte_erase_line();
+    //tte_printf("fps: %d", fps);
 }
 
 
@@ -242,7 +304,8 @@ int main() {
     // Black background
     pal_bg_mem[BLACK_COLOR_IDX] = RGB15(0, 0, 0) | BIT(15);
     // Purple walls
-    pal_bg_mem[WALL_COLOR_IDX] = RGB15(16, 0, 31) | BIT(15);
+    pal_bg_mem[LIGHT_WALL_COLOR_IDX] = RGB15(16, 0, 31) | BIT(15);
+    pal_bg_mem[DARK_WALL_COLOR_IDX] = RGB15(8, 0, 16) | BIT(15);
     // Green player
     pal_bg_mem[PLAYER_COLOR_IDX] = RGB15(0, 31, 0) | BIT(15);
     // Red ground
