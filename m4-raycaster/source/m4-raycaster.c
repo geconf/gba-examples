@@ -2,7 +2,6 @@
 #include "tonc_math.h"
 #include "tonc_tte.h"
 #include "tonc_video.h"
-#include <stdlib.h>
 
 
 // Fixed-point math
@@ -47,18 +46,18 @@ enum PlayerConsts {
     ANGULAR_SPEED = LU_PI/10000,
     PLAYER_START_X = INT_TO_FIXED(MAP_X+2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
     PLAYER_START_Y = INT_TO_FIXED(MAP_Y+5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
-    PLAYER_START_THETA = INT_TO_FIXED(0),
+    PLAYER_START_THETA = 0,
 };
 
 
 static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1},
     {1, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 1, 1, 0, 0, 1},
-    {1, 0, 0, 0, 1, 1, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 1},
+    {1, 0, 0, 1, 1, 1, 0, 0, 1},
+    {1, 0, 0, 1, 0, 0, 0, 1, 1},
+    {1, 0, 0, 1, 0, 0, 0, 1, 1},
+    {1, 0, 0, 0, 0, 1, 0, 0, 1},
+    {1, 0, 0, 0, 0, 1, 0, 0, 1},
     {1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
@@ -109,6 +108,7 @@ int pixel_in_collision(u32 x, u32 y){
 static inline s32 fixed_div(s32 a, s32 b) {
     return (s32)(((s64)a << FIXED_SHIFT) / b);
 }
+
 static inline s32 fixed_abs(s32 x) {
     return x < 0 ? -x : x;
 }
@@ -116,7 +116,6 @@ static inline s32 fixed_abs(s32 x) {
 void render_direction() {
     m4_fill(BLACK_COLOR_IDX);
     m4_rect(0, SCREEN_HEIGHT/2, SCREEN_WIDTH, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
-    s32 dist = RAY_LENGTH;
     /*
     s32 here = 0;
     s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(200)/SCREEN_WIDTH), FOV);
@@ -157,6 +156,7 @@ void render_direction() {
     tte_printf("dist: %d", dist);
     */
     for (s16 i = 0; i < SCREEN_WIDTH; i++ ) {
+        s32 dist = RAY_LENGTH;
         s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
         s32 xDir = lu_cos(rayAngle);
         s32 yDir = lu_sin(rayAngle);
@@ -165,7 +165,7 @@ void render_direction() {
             u32 xRay = playerX+fixed_mul(z, xDir);
             u32 yRay = playerY+fixed_mul(z, yDir);
             if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-                dist = int_to_fixed(j-1);
+                dist = int_to_fixed(j - 1);
                 break;
             }
         }
@@ -175,19 +175,19 @@ void render_direction() {
             u32 xRay = playerX + xDist + fixed_mul(j, xDir);
             u32 yRay = playerY + yDist + fixed_mul(j, yDir);
             if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-                dist += j - 1;
+                dist += j;
                 break;
             }
         }
+        // Fish-eye correction
+        dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
         // If wall within range
-        s32 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist/8);
-        if (lineHeight > int_to_fixed(SCREEN_WIDTH))
-        {
-            lineHeight = int_to_fixed(SCREEN_WIDTH);
+        s32 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist/TILE_SIZE);
+        if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
+            lineHeight = int_to_fixed(SCREEN_HEIGHT);
         }
         s32 offset = int_to_fixed(SCREEN_HEIGHT)/2 - lineHeight/2;
-        if (offset < 0)
-        {
+        if (offset < 0) {
             offset = 0;
         }
         // Draw walls
@@ -207,7 +207,7 @@ static inline s16 clamp_steps(
 {
     if (delta == 0) return 0;
     s32  sign  = (delta > 0) ?  1 : -1;
-    u32  steps = abs(delta);
+    u32  steps = fixed_abs(delta);
     for (u16 i = 1; i <= steps; i = i + TILE_SIZE) {
         u32 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
         u32 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
@@ -227,8 +227,8 @@ void update_player() {
     s16 angularMove = ANGULAR_SPEED * secPerFrame;
     if (key_is_down(KEY_UP)) moveY += linearMove;
     if (key_is_down(KEY_DOWN)) moveY += -linearMove;
-    if (key_is_down(KEY_B)) moveX += linearMove;
-    if (key_is_down(KEY_A)) moveX += -linearMove;
+    if (key_is_down(KEY_R)) moveX += -linearMove;
+    if (key_is_down(KEY_L)) moveX += linearMove;
     if (key_is_down(KEY_LEFT)) rotateTheta += -angularMove;
     if (key_is_down(KEY_RIGHT)) rotateTheta += angularMove;
     // Handle moving diagonally at the same speed
