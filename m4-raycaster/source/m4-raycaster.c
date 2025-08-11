@@ -67,7 +67,7 @@ static inline s32 int_to_fixed(s32 x) {
 }
 
 // Convert to integer. It adds half the divisor to round up
-static inline s32 fixed_to_int(s32 x) {
+static inline s32 fixed_to_int_s(s32 x) {
     const s32 half = 1 << (FIXED_SHIFT - 1);
     if (x >= 0) {
         return (x + half) >> FIXED_SHIFT;
@@ -76,6 +76,17 @@ static inline s32 fixed_to_int(s32 x) {
         return (x - half) >> FIXED_SHIFT;
     }
 }
+
+static inline u32 fixed_to_int_u(u32 x) {
+    const u32 half = 1u << (FIXED_SHIFT - 1);
+    return (x + half) >> FIXED_SHIFT;
+}
+
+#define fixed_to_int(x) _Generic((x), \
+s32: fixed_to_int_s,    \
+u32: fixed_to_int_u,   \
+default: fixed_to_int_s \
+)(x)
 
 // Player position
 static u32 playerX = PLAYER_START_X;
@@ -99,9 +110,15 @@ static inline s32 fixed_mul(s32 a, s32 b) {
 }
 
 
-int pixel_in_collision(u32 x, u32 y){
-    int playerXTile = (x-MAP_X)/TILE_SIZE;
-    int playerYTile = (y-MAP_Y)/TILE_SIZE;
+static inline u32 pixel_in_collision(u32 x, u32 y){
+    u32 playerXTile = (x-MAP_X)/TILE_SIZE;
+    u32 playerYTile = (y-MAP_Y)/TILE_SIZE;
+    return worldMap[playerYTile][playerXTile];
+}
+
+static inline u32 player_in_collision(u32 x, u32 y){
+    u32 playerXTile = (fixed_to_int(x)-MAP_X)/TILE_SIZE;
+    u32 playerYTile = (fixed_to_int(y)-MAP_Y)/TILE_SIZE;
     return worldMap[playerYTile][playerXTile];
 }
 
@@ -113,7 +130,7 @@ static inline s32 fixed_abs(s32 x) {
     return x < 0 ? -x : x;
 }
 
-void render_direction() {
+static inline void render_direction() {
     m4_fill(BLACK_COLOR_IDX);
     m4_rect(0, SCREEN_HEIGHT/2, SCREEN_WIDTH, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
     /*
@@ -211,13 +228,13 @@ static inline s16 clamp_steps(
     for (u16 i = 1; i <= steps; i = i + TILE_SIZE) {
         u32 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
         u32 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
-        if (pixel_in_collision(fixed_to_int(x), fixed_to_int(y)))
+        if (player_in_collision(x, y))
             return sign * (i - TILE_SIZE);
     }
     return sign * steps;
 }
 
-void update_player() {
+static inline void update_player() {
     key_poll();
 
     s16 moveX = 0, moveY = 0, rotateTheta = 0;
@@ -261,7 +278,7 @@ void update_player() {
 }
 
 
-void init_timebase(void) {
+static inline void init_timebase(void) {
     REG_TM0CNT_L = 0;
     /* start at SYSCLK (16.78 MHz)
      * Set prescaler so that timer ticks once every 64 SYSCLK cycles (262 kHz).
@@ -279,7 +296,7 @@ void init_timebase(void) {
 }
 
 
-void calc_delta_time(void) {
+static inline void calc_delta_time(void) {
     u16 now  = REG_TM0CNT_L;
     dt = now - lastTicks;
     lastTicks = now;
