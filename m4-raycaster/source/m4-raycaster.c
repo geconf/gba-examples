@@ -2,6 +2,7 @@
 #include "tonc_math.h"
 #include "tonc_tte.h"
 #include "tonc_video.h"
+#include <math.h>
 
 
 // Fixed-point math
@@ -23,6 +24,8 @@ enum TimeConsts {
 
 enum MapConsts {
     TILE_SIZE = 8,
+    TILE_SIZE_FIXED = INT_TO_FIXED(8),
+    HALF_TILE_FIXED = TILE_SIZE_FIXED/2,
     MAP_WIDTH = 9,
     MAP_HEIGHT = 9,
     MAP_X = 80,
@@ -40,6 +43,8 @@ enum ColorConsts {
 
 
 enum PlayerConsts {
+    PLAYER_RADIUS = TILE_SIZE_FIXED/3,
+    PLAYER_RADIUS_SQUARED = (PLAYER_RADIUS * PLAYER_RADIUS) >> FIXED_SHIFT,
     FOV = LU_PI/2,
     RAY_LENGTH = INT_TO_FIXED(100),
     LINEAR_SPEED = 5,
@@ -88,6 +93,7 @@ u32: fixed_to_int_u,   \
 default: fixed_to_int_s \
 )(x)
 
+
 // Player position
 static u32 playerX = PLAYER_START_X;
 static u32 playerY = PLAYER_START_Y;
@@ -109,17 +115,47 @@ static inline s32 fixed_mul(s32 a, s32 b) {
     return (s32)(((s64)a * b) >> FIXED_SHIFT);
 }
 
-
 static inline u32 pixel_in_collision(u32 x, u32 y){
-    u32 playerXTile = (x-MAP_X)/TILE_SIZE;
-    u32 playerYTile = (y-MAP_Y)/TILE_SIZE;
-    return worldMap[playerYTile][playerXTile];
+    u32 playerTileX = (x-MAP_X)/TILE_SIZE;
+    u32 playerTileY = (y-MAP_Y)/TILE_SIZE;
+    return worldMap[playerTileY][playerTileX];
 }
 
-static inline u32 player_in_collision(u32 x, u32 y){
-    u32 playerXTile = (fixed_to_int(x)-MAP_X)/TILE_SIZE;
-    u32 playerYTile = (fixed_to_int(y)-MAP_Y)/TILE_SIZE;
-    return worldMap[playerYTile][playerXTile];
+static inline u32 player_in_collision(u32 playerCenterX, u32 playerCenterY){
+    s32 playerTileX = (fixed_to_int(playerCenterX)-MAP_X)/TILE_SIZE;
+    s32 playerTileY = (fixed_to_int(playerCenterY)-MAP_Y)/TILE_SIZE;
+    for (s32 i = -1; i < 2; i++) {
+        for (s32 j = -1; j < 2; j++) {
+            s32 neighborTileX = playerTileX + j;
+            s32 neighborTileY = playerTileY + i;
+            // Do not check out of bounds
+            if (neighborTileX < 0 || neighborTileX >= MAP_WIDTH ||
+                    neighborTileY < 0 || neighborTileY >= MAP_HEIGHT)
+                continue;
+            // Do not check for collisions if this is not a wall
+            if (!worldMap[neighborTileY][neighborTileX]) {
+                continue;
+            }
+            // Get the fixed coords for the AABB to check against
+            s32 neighborX = int_to_fixed(neighborTileX * TILE_SIZE + MAP_X);
+            s32 neighborY = int_to_fixed(neighborTileY * TILE_SIZE + MAP_Y);
+            s32 neighborCenterX = neighborX + HALF_TILE_FIXED;
+            s32 neighborCenterY = neighborY + HALF_TILE_FIXED;
+            s32 differenceX = (s32)playerCenterX - neighborCenterX;
+            s32 differenceY = (s32)playerCenterY - neighborCenterY;
+            s32 clampX = clamp(differenceX, -HALF_TILE_FIXED, HALF_TILE_FIXED);
+            s32 clampY = clamp(differenceY, -HALF_TILE_FIXED, HALF_TILE_FIXED);
+            s32 closestX = neighborCenterX + clampX;
+            s32 closestY = neighborCenterY + clampY;
+            s32 distanceX = closestX - (s32)playerCenterX;
+            s32 distanceY = closestY - (s32)playerCenterY;
+            s32 distanceSquared = fixed_mul(distanceX, distanceX) + fixed_mul(distanceY, distanceY);
+            if (distanceSquared < PLAYER_RADIUS_SQUARED) {
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 static inline s32 fixed_div(s32 a, s32 b) {
