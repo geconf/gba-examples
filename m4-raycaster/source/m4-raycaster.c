@@ -113,15 +113,25 @@ static inline s32 fixed_mul(s32 a, s32 b) {
     return (s32)(((s64)a * b) >> FIXED_SHIFT);
 }
 
+static inline s32 fixed_div(s32 a, s32 b) {
+    return (s32)(((s64)a << FIXED_SHIFT) / b);
+}
+
+static inline u32 fixed_abs(s32 x) {
+    return x < 0 ? -x : x;
+}
+
+
 static inline u32 pixel_in_collision(u32 x, u32 y){
     u32 playerTileX = x/TILE_SIZE;
     u32 playerTileY = y/TILE_SIZE;
     return worldMap[playerTileY][playerTileX];
 }
 
-static inline u32 player_in_collision(s32 playerCenterX, s32 playerCenterY){
+static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
     s32 playerTileX = fixed_to_int(playerCenterX)/TILE_SIZE;
     s32 playerTileY = fixed_to_int(playerCenterY)/TILE_SIZE;
+    POINT moveCoords = { 0, 0 };
     for (s32 i = -1; i < 2; i++) {
         for (s32 j = -1; j < 2; j++) {
             s32 neighborTileX = playerTileX + j;
@@ -145,23 +155,26 @@ static inline u32 player_in_collision(s32 playerCenterX, s32 playerCenterY){
             s32 clampY = clamp(differenceY, -HALF_TILE_FIXED, HALF_TILE_FIXED);
             s32 closestX = neighborCenterX + clampX;
             s32 closestY = neighborCenterY + clampY;
-            s32 distanceX = closestX - (s32)playerCenterX;
-            s32 distanceY = closestY - (s32)playerCenterY;
+            s32 distanceX = closestX - playerCenterX;
+            s32 distanceY = closestY - playerCenterY;
             s32 distanceSquared = fixed_mul(distanceX, distanceX) + fixed_mul(distanceY, distanceY);
             if (distanceSquared < PLAYER_RADIUS_SQUARED) {
-                return 1;
+                s32 penetrationX = PLAYER_RADIUS - fixed_abs(distanceX);
+                s32 penetrationY = PLAYER_RADIUS - fixed_abs(distanceY);
+                s32 moveX = penetrationX;
+                s32 moveY = penetrationY;
+                if (distanceX > 0) {
+                    moveX = -moveX;
+                }
+                if (distanceY > 0) {
+                    moveY = -moveY;
+                }
+                moveCoords.x += moveX;
+                moveCoords.y += moveY;
             }
         }
     }
-    return 0;
-}
-
-static inline s32 fixed_div(s32 a, s32 b) {
-    return (s32)(((s64)a << FIXED_SHIFT) / b);
-}
-
-static inline s32 fixed_abs(s32 x) {
-    return x < 0 ? -x : x;
+    return moveCoords;
 }
 
 static inline void render_direction() {
@@ -262,7 +275,8 @@ static inline s16 clamp_steps(
     for (u16 i = 1; i <= steps; i = i + TILE_SIZE) {
         u32 x = isVertical ? otherAxisCoord : currentAxisCoord + sign * i;
         u32 y = isVertical ? currentAxisCoord + sign * i : otherAxisCoord;
-        if (player_in_collision(x, y))
+        POINT moveCoords = player_in_collision(x, y);
+        if (moveCoords.x != 0 || moveCoords.y != 0)
             return sign * (i - TILE_SIZE);
     }
     return sign * steps;
