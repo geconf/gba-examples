@@ -28,8 +28,6 @@ enum MapConsts {
     HALF_TILE_FIXED = TILE_SIZE_FIXED/2,
     MAP_WIDTH = 9,
     MAP_HEIGHT = 9,
-    MAP_X = 80,
-    MAP_Y = 40,
 };
 
 enum ColorConsts {
@@ -49,8 +47,8 @@ enum PlayerConsts {
     RAY_LENGTH = INT_TO_FIXED(100),
     LINEAR_SPEED = 5,
     ANGULAR_SPEED = LU_PI/10000,
-    PLAYER_START_X = INT_TO_FIXED(MAP_X+2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
-    PLAYER_START_Y = INT_TO_FIXED(MAP_Y+5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
+    PLAYER_START_X = INT_TO_FIXED(2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
+    PLAYER_START_Y = INT_TO_FIXED(5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
     PLAYER_START_THETA = 0,
 };
 
@@ -116,14 +114,14 @@ static inline s32 fixed_mul(s32 a, s32 b) {
 }
 
 static inline u32 pixel_in_collision(u32 x, u32 y){
-    u32 playerTileX = (x-MAP_X)/TILE_SIZE;
-    u32 playerTileY = (y-MAP_Y)/TILE_SIZE;
+    u32 playerTileX = x/TILE_SIZE;
+    u32 playerTileY = y/TILE_SIZE;
     return worldMap[playerTileY][playerTileX];
 }
 
-static inline u32 player_in_collision(u32 playerCenterX, u32 playerCenterY){
-    s32 playerTileX = (fixed_to_int(playerCenterX)-MAP_X)/TILE_SIZE;
-    s32 playerTileY = (fixed_to_int(playerCenterY)-MAP_Y)/TILE_SIZE;
+static inline u32 player_in_collision(s32 playerCenterX, s32 playerCenterY){
+    s32 playerTileX = fixed_to_int(playerCenterX)/TILE_SIZE;
+    s32 playerTileY = fixed_to_int(playerCenterY)/TILE_SIZE;
     for (s32 i = -1; i < 2; i++) {
         for (s32 j = -1; j < 2; j++) {
             s32 neighborTileX = playerTileX + j;
@@ -137,12 +135,12 @@ static inline u32 player_in_collision(u32 playerCenterX, u32 playerCenterY){
                 continue;
             }
             // Get the fixed coords for the AABB to check against
-            s32 neighborX = int_to_fixed(neighborTileX * TILE_SIZE + MAP_X);
-            s32 neighborY = int_to_fixed(neighborTileY * TILE_SIZE + MAP_Y);
+            s32 neighborX = int_to_fixed(neighborTileX * TILE_SIZE);
+            s32 neighborY = int_to_fixed(neighborTileY * TILE_SIZE);
             s32 neighborCenterX = neighborX + HALF_TILE_FIXED;
             s32 neighborCenterY = neighborY + HALF_TILE_FIXED;
-            s32 differenceX = (s32)playerCenterX - neighborCenterX;
-            s32 differenceY = (s32)playerCenterY - neighborCenterY;
+            s32 differenceX = playerCenterX - neighborCenterX;
+            s32 differenceY = playerCenterY - neighborCenterY;
             s32 clampX = clamp(differenceX, -HALF_TILE_FIXED, HALF_TILE_FIXED);
             s32 clampY = clamp(differenceY, -HALF_TILE_FIXED, HALF_TILE_FIXED);
             s32 closestX = neighborCenterX + clampX;
