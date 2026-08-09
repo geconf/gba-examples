@@ -20,12 +20,14 @@ enum MathConsts {
 
 enum TimeConsts {
     SYSCLK_64 = 262144,
+    SYSCLK_64_SHIFT = 18
 };
 
 enum MapConsts {
     TILE_SIZE = 8,
     TILE_SIZE_FIXED = INT_TO_FIXED(8),
-    HALF_TILE_FIXED = TILE_SIZE_FIXED/2,
+    TILE_SHIFT = 3,
+    HALF_TILE_FIXED = TILE_SIZE_FIXED >> 1,
     MAP_WIDTH = 9,
     MAP_HEIGHT = 9,
 };
@@ -41,14 +43,14 @@ enum ColorConsts {
 
 
 enum PlayerConsts {
-    PLAYER_RADIUS = TILE_SIZE_FIXED/3,
+    PLAYER_RADIUS = TILE_SIZE_FIXED >> 2,
     PLAYER_RADIUS_SQUARED = (PLAYER_RADIUS * PLAYER_RADIUS) >> FIXED_SHIFT,
-    FOV = LU_PI/2,
+    FOV = LU_PI >> 1,
     RAY_LENGTH = INT_TO_FIXED(100),
     LINEAR_SPEED = 5,
-    ANGULAR_SPEED = LU_PI/10000,
-    PLAYER_START_X = INT_TO_FIXED(2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
-    PLAYER_START_Y = INT_TO_FIXED(5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE/2),
+    ANGULAR_SPEED = LU_PI >> 14,
+    PLAYER_START_X = INT_TO_FIXED(2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE >> 1),
+    PLAYER_START_Y = INT_TO_FIXED(5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE >> 1),
     PLAYER_START_THETA = 0,
 };
 
@@ -104,6 +106,12 @@ static u32 lastTicks;
 static u32 fps;
 static u16 dt;
 
+// debug
+volatile u32 debug_fps;
+volatile u16 debug_frame_ticks;
+volatile u16 debug_raycast_ticks;
+volatile u16 debug_update_ticks;
+
 static inline u8* back_page(void) {
     return (u8*)0x06000000
          + ((REG_DISPCNT & DCNT_PAGE) ? 0x0000 : 0xA000);
@@ -123,14 +131,14 @@ static inline u32 fixed_abs(s32 x) {
 
 
 static inline u32 pixel_in_collision(u32 x, u32 y){
-    u32 playerTileX = x/TILE_SIZE;
-    u32 playerTileY = y/TILE_SIZE;
+    u32 playerTileX = x >> TILE_SHIFT;
+    u32 playerTileY = y >> TILE_SHIFT;
     return worldMap[playerTileY][playerTileX];
 }
 
 static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
-    s32 playerTileX = fixed_to_int(playerCenterX)/TILE_SIZE;
-    s32 playerTileY = fixed_to_int(playerCenterY)/TILE_SIZE;
+    s32 playerTileX = fixed_to_int(playerCenterX) >> TILE_SHIFT;
+    s32 playerTileY = fixed_to_int(playerCenterY) >> TILE_SHIFT;
     POINT moveCoords = { 0, 0 };
     for (s32 i = -1; i < 2; i++) {
         for (s32 j = -1; j < 2; j++) {
@@ -179,7 +187,7 @@ static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
 
 static inline void render_direction() {
     m4_fill(BLACK_COLOR_IDX);
-    m4_rect(0, SCREEN_HEIGHT/2, SCREEN_WIDTH, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
+    m4_rect(0, SCREEN_HEIGHT >> 1, SCREEN_WIDTH, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
     /*
     s32 here = 0;
     s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(200)/SCREEN_WIDTH), FOV);
@@ -205,23 +213,10 @@ static inline void render_direction() {
             break;
         }
     }
-    s32 height = SCREEN_HEIGHT/fixed_to_int(dist);
-    tte_write("#{P:50,115}");
-    tte_erase_line();
-    tte_printf("test: %d", height);
-    tte_write("#{P:50,125}");
-    tte_erase_line();
-    tte_printf("cnt: %d", here);
-    tte_write("#{P:50,135}");
-    tte_erase_line();
-    tte_printf("Player X: %d", playerX);
-    tte_write("#{P:50,145}");
-    tte_erase_line();
-    tte_printf("dist: %d", dist);
     */
     for (s16 i = 0; i < SCREEN_WIDTH; i++ ) {
         s32 dist = RAY_LENGTH;
-        s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
+        s32 rayAngle = playerTheta - (FOV >> 1) + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
         s32 xDir = lu_cos(rayAngle);
         s32 yDir = lu_sin(rayAngle);
         for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 1) {
@@ -246,11 +241,11 @@ static inline void render_direction() {
         // Fish-eye correction
         dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
         // If wall within range
-        s32 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist/TILE_SIZE);
+        s32 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
         if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
             lineHeight = int_to_fixed(SCREEN_HEIGHT);
         }
-        s32 offset = int_to_fixed(SCREEN_HEIGHT)/2 - lineHeight/2;
+        s32 offset = (int_to_fixed(SCREEN_HEIGHT) >> 1) - (lineHeight >> 1);
         if (offset < 0) {
             offset = 0;
         }
@@ -308,13 +303,13 @@ static inline void update_player() {
 
     // Apply translation per axis
     s16 yDir = lu_sin(playerTheta);
-    s16 yLatDir = lu_sin(playerTheta - LU_PI/2);
+    s16 yLatDir = lu_sin(playerTheta - (LU_PI >> 1));
     s16 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
     s16 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
     playerY += safeStepsY;
 
     s16 xDir = lu_cos(playerTheta);
-    s16 xLatDir = lu_cos(playerTheta - LU_PI/2);
+    s16 xLatDir = lu_cos(playerTheta - (LU_PI >> 1));
     s16 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
     s16 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
     playerX += safeStepsX;
@@ -381,6 +376,7 @@ int main() {
     /* 
      * Drawing the map here in both screens could make it faster, 
      * but we would have to constantly erase the player and rays' positions
+     * which could add overhead
      * draw_map(MAP_X, MAP_Y);
      * vid_flip();
      * draw_map(MAP_X, MAP_Y);
@@ -388,13 +384,20 @@ int main() {
     while (1) {
         vid_vsync();
         calc_delta_time();
+        u16 frame_start = REG_TM0CNT_L;
 
-        TTC *tc = tte_get_context();
-        tc->dst.data  = back_page();
-        tc->dst.pitch = SCREEN_WIDTH;
-
+        u16 update_start = REG_TM0CNT_L;
         update_player();
+        u16 update_end = REG_TM0CNT_L;
         vid_flip();
+        u16 frame_end = REG_TM0CNT_L;
+
+        debug_update_ticks = update_end - update_start;
+        debug_frame_ticks  = frame_end - frame_start;
+
+        debug_fps = debug_frame_ticks
+            ? (SYSCLK_64 + debug_frame_ticks / 2) / debug_frame_ticks
+            : 0;
     }
 }
 

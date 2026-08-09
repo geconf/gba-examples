@@ -35,3 +35,6 @@ Thumbs.db
 # Ignore libtonc if it's submodule or copied in directly
 libtonc/
 
+
+# Profiler files
+.mgba-symbols.txt
