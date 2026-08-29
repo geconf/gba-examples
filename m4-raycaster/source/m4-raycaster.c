@@ -1,9 +1,12 @@
 #include "tonc_input.h"
 #include "tonc_math.h"
-#include "tonc_tte.h"
 #include "tonc_video.h"
 #include <math.h>
 
+
+// typedef
+typedef s32 fx12;
+typedef u16 lu_angle;
 
 // Fixed-point math
 enum FixedShiftConsts {
@@ -67,12 +70,12 @@ static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
 };
 
 // Convert to Fixed point
-static inline s32 int_to_fixed(s32 x) {
+static inline fx12 int_to_fixed(s32 x) {
     return x << FIXED_SHIFT;
 }
 
 // Convert to integer. It adds half the divisor to round up
-static inline s32 fixed_to_int_s(s32 x) {
+static inline s32 fixed_to_int_s(fx12 x) {
     const s32 half = 1 << (FIXED_SHIFT - 1);
     if (x >= 0) {
         return (x + half) >> FIXED_SHIFT;
@@ -95,11 +98,11 @@ default: fixed_to_int_s \
 
 
 // Player position
-static u32 playerX = PLAYER_START_X;
-static u32 playerY = PLAYER_START_Y;
+static fx12 playerX = PLAYER_START_X;
+static fx12 playerY = PLAYER_START_Y;
 
 // Player rotation
-static u32 playerTheta = PLAYER_START_THETA;
+static lu_angle playerTheta = PLAYER_START_THETA;
 
 // Time
 static u32 lastTicks;
@@ -186,53 +189,31 @@ static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
 }
 
 static inline void render_direction() {
+    // Reset everything
     m4_fill(BLACK_COLOR_IDX);
+    // Draw floor on lower half of the screen
     m4_rect(0, SCREEN_HEIGHT >> 1, SCREEN_WIDTH, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
-    /*
-    s32 here = 0;
-    s32 rayAngle = playerTheta - FOV/2 + fixed_mul((int_to_fixed(200)/SCREEN_WIDTH), FOV);
-    s32 xDir = lu_cos(rayAngle);
-    s32 yDir = lu_sin(rayAngle);
-    for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 1) {
-        u32 z = int_to_fixed(j);
-        u32 xRay = playerX+fixed_mul(z, xDir);
-        u32 yRay = playerY+fixed_mul(z, yDir);
-        if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-            dist = int_to_fixed(j - 1);
-            break;
-        }
-    }
-    s32 xDist = fixed_mul(dist, xDir);
-    s32 yDist = fixed_mul(dist, yDir);
-    for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
-        u32 xRay = playerX + xDist + fixed_mul(j, xDir);
-        u32 yRay = playerY + yDist + fixed_mul(j, yDir);
-        here++;
-        if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-            dist += j;
-            break;
-        }
-    }
-    */
-    for (s16 i = 0; i < SCREEN_WIDTH; i++ ) {
-        s32 dist = RAY_LENGTH;
-        s32 rayAngle = playerTheta - (FOV >> 1) + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
-        s32 xDir = lu_cos(rayAngle);
-        s32 yDir = lu_sin(rayAngle);
-        for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 1) {
-            u32 z = int_to_fixed(j);
-            u32 xRay = playerX+fixed_mul(z, xDir);
-            u32 yRay = playerY+fixed_mul(z, yDir);
+
+    lu_angle initialRayAngle = playerTheta - (FOV >> 1);
+    for (int i = 0; i < SCREEN_WIDTH; i++ ) {
+        fx12 dist = RAY_LENGTH;
+        lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
+        fx12 xDir = lu_cos(rayAngle);
+        fx12 yDir = lu_sin(rayAngle);
+        for (int j = 1; j < RAY_LENGTH + 1; j++ ) {
+            fx12 z = int_to_fixed(j);
+            fx12 xRay = playerX+fixed_mul(z, xDir);
+            fx12 yRay = playerY+fixed_mul(z, yDir);
             if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
                 dist = int_to_fixed(j - 1);
                 break;
             }
         }
-        s32 xDist = fixed_mul(dist, xDir);
-        s32 yDist = fixed_mul(dist, yDir);
-        for (u32 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
-            u32 xRay = playerX + xDist + fixed_mul(j, xDir);
-            u32 yRay = playerY + yDist + fixed_mul(j, yDir);
+        fx12 xDist = fixed_mul(dist, xDir);
+        fx12 yDist = fixed_mul(dist, yDir);
+        for (fx12 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
+            fx12 xRay = playerX + xDist + fixed_mul(j, xDir);
+            fx12 yRay = playerY + yDist + fixed_mul(j, yDir);
             if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
                 dist += j;
                 break;
@@ -241,15 +222,15 @@ static inline void render_direction() {
         // Fish-eye correction
         dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
         // If wall within range
-        s32 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
+        fx12 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
         if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
             lineHeight = int_to_fixed(SCREEN_HEIGHT);
         }
-        s32 offset = (int_to_fixed(SCREEN_HEIGHT) >> 1) - (lineHeight >> 1);
+        fx12 offset = (int_to_fixed(SCREEN_HEIGHT) >> 1) - (lineHeight >> 1);
         if (offset < 0) {
             offset = 0;
         }
-        // Draw walls
+        // Draw wall
         u16 wallColor = LIGHT_WALL_COLOR_IDX;
         if (dist < RAY_LENGTH) {
             m4_rect(i, fixed_to_int(offset), i + 1, fixed_to_int(offset + lineHeight), wallColor);
@@ -315,9 +296,6 @@ static inline void update_player() {
     playerX += safeStepsX;
 
     render_direction();
-    //tte_write("#{P:50,0}");
-    //tte_erase_line();
-    //tte_printf("fps: %d", fps);
 }
 
 
@@ -356,8 +334,6 @@ static inline void calc_delta_time(void) {
 int main() {
     REG_DISPCNT = DCNT_MODE4 | DCNT_BG2;
 
-    tte_init_bmp(DCNT_MODE4, NULL, NULL);
-    tte_init_con();
     init_timebase();
 
     // Set up colors
@@ -376,7 +352,7 @@ int main() {
     /* 
      * Drawing the map here in both screens could make it faster, 
      * but we would have to constantly erase the player and rays' positions
-     * which could add overhead
+     * which adds overhead and could make it worse
      * draw_map(MAP_X, MAP_Y);
      * vid_flip();
      * draw_map(MAP_X, MAP_Y);
