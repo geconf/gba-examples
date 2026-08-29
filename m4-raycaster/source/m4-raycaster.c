@@ -50,6 +50,7 @@ enum PlayerConsts {
     PLAYER_RADIUS_SQUARED = (PLAYER_RADIUS * PLAYER_RADIUS) >> FIXED_SHIFT,
     FOV = LU_PI >> 1,
     RAY_LENGTH = INT_TO_FIXED(100),
+    RAY_COUNT = 240,
     LINEAR_SPEED = 5,
     ANGULAR_SPEED = LU_PI >> 14,
     PLAYER_START_X = INT_TO_FIXED(2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE >> 1),
@@ -68,6 +69,10 @@ static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
     {1, 0, 0, 0, 0, 1, 0, 0, 1},
     {1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
+
+// Walls
+static s16 wallTop[SCREEN_WIDTH];
+static s16 wallBottom[SCREEN_WIDTH];
 
 // Convert to Fixed point
 static inline fx12 int_to_fixed(s32 x) {
@@ -114,7 +119,8 @@ volatile u32 debug_work_fps;
 volatile u32 debug_actual_fps;
 volatile u16 debug_frame_ticks;
 volatile u16 debug_raycast_ticks;
-volatile u16 debug_update_ticks;
+volatile u16 debug_render_ticks;
+volatile u16 debug_work_ticks;
 
 static inline u8* back_page(void) {
     return (u8*)0x06000000
@@ -189,57 +195,6 @@ static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
     return moveCoords;
 }
 
-static inline void render_direction() {
-    // Reset everything
-    m4_fill(BLACK_COLOR_IDX);
-    // Draw floor on lower half of the screen
-    m4_rect(0, SCREEN_HEIGHT >> 1, SCREEN_WIDTH, SCREEN_HEIGHT, FLOOR_COLOR_IDX);
-
-    lu_angle initialRayAngle = playerTheta - (FOV >> 1);
-    for (int i = 0; i < SCREEN_WIDTH; i++ ) {
-        fx12 dist = RAY_LENGTH;
-        lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
-        fx12 xDir = lu_cos(rayAngle);
-        fx12 yDir = lu_sin(rayAngle);
-        // Gets distance 
-        for (int j = 1; j < fixed_to_int(RAY_LENGTH) + 1; j++) {
-            fx12 z = int_to_fixed(j);
-            fx12 xRay = playerX+fixed_mul(z, xDir);
-            fx12 yRay = playerY+fixed_mul(z, yDir);
-            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-                dist = int_to_fixed(j - 1);
-                break;
-            }
-        }
-        fx12 xDist = fixed_mul(dist, xDir);
-        fx12 yDist = fixed_mul(dist, yDir);
-        for (fx12 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
-            fx12 xRay = playerX + xDist + fixed_mul(j, xDir);
-            fx12 yRay = playerY + yDist + fixed_mul(j, yDir);
-            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
-                dist += j;
-                break;
-            }
-        }
-        // Fish-eye correction
-        dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
-        // If wall within range
-        fx12 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
-        if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
-            lineHeight = int_to_fixed(SCREEN_HEIGHT);
-        }
-        fx12 offset = (int_to_fixed(SCREEN_HEIGHT) >> 1) - (lineHeight >> 1);
-        if (offset < 0) {
-            offset = 0;
-        }
-        // Draw wall
-        u16 wallColor = LIGHT_WALL_COLOR_IDX;
-        if (dist < RAY_LENGTH) {
-            //m4_rect(i, fixed_to_int(offset), i + 1, fixed_to_int(offset + lineHeight), wallColor);
-        }
-    }
-}
-
 static inline s16 clamp_steps(
     u32 currentAxisCoord,
     s32 delta,
@@ -296,8 +251,163 @@ static inline void update_player() {
     s16 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
     s16 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
     playerX += safeStepsX;
+}
 
-    render_direction();
+static inline void cast_rays() {
+    lu_angle initialRayAngle = playerTheta - (FOV >> 1);
+    //for (int i = 0; i < SCREEN_WIDTH; i++ ) {
+    for (int i = 0; i < RAY_COUNT; i++ ) {
+        lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
+        fx12 xDir = lu_cos(rayAngle);
+        fx12 yDir = lu_sin(rayAngle);
+        // Gets distance 
+        fx12 dist = RAY_LENGTH;
+        for (int j = 1; j < fixed_to_int(RAY_LENGTH) + 1; j = j + 1) {
+            fx12 z = int_to_fixed(j);
+            fx12 xRay = playerX+fixed_mul(z, xDir);
+            fx12 yRay = playerY+fixed_mul(z, yDir);
+            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+                dist = int_to_fixed(j - 1);
+                break;
+            }
+        }
+        fx12 xDist = fixed_mul(dist, xDir);
+        fx12 yDist = fixed_mul(dist, yDir);
+        for (fx12 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
+            fx12 xRay = playerX + xDist + fixed_mul(j, xDir);
+            fx12 yRay = playerY + yDist + fixed_mul(j, yDir);
+            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+                dist += j;
+                break;
+            }
+        }
+        // Fish-eye correction
+        dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
+        // If wall within range
+        fx12 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
+        if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
+            lineHeight = int_to_fixed(SCREEN_HEIGHT);
+        }
+        fx12 offset = (int_to_fixed(SCREEN_HEIGHT) >> 1) - (lineHeight >> 1);
+        if (offset < 0) {
+            offset = 0;
+        }
+        // Draw wall
+        if (dist < RAY_LENGTH) {
+            wallTop[i] = fixed_to_int(offset);
+            wallBottom[i] = fixed_to_int(offset + lineHeight);
+        }
+    }
+}
+
+static inline void render_frame() {
+    u8 *page = back_page();
+    u32 sky =
+        BLACK_COLOR_IDX |
+        (BLACK_COLOR_IDX << 8) |
+        (BLACK_COLOR_IDX << 16) |
+        (BLACK_COLOR_IDX << 24);
+
+    u32 floor =
+        FLOOR_COLOR_IDX |
+        (FLOOR_COLOR_IDX << 8) |
+        (FLOOR_COLOR_IDX << 16) |
+        (FLOOR_COLOR_IDX << 24);
+
+    dma3_fill(
+        page,
+        sky,
+        SCREEN_WIDTH * (SCREEN_HEIGHT / 2)
+    );
+
+    dma3_fill(
+        page + SCREEN_WIDTH * (SCREEN_HEIGHT / 2),
+        floor,
+        SCREEN_WIDTH * (SCREEN_HEIGHT / 2)
+    );
+    u16 wallColor = LIGHT_WALL_COLOR_IDX;
+
+    u16 *page16 = (u16 *)page;
+    const u16 wall2 =
+        LIGHT_WALL_COLOR_IDX |
+        (LIGHT_WALL_COLOR_IDX << 8);
+
+    for (int x = 0; x < SCREEN_WIDTH; x += 2)
+    {
+        int t0 = wallTop[x];
+        int b0 = wallBottom[x];
+        int t1 = wallTop[x + 1];
+        int b1 = wallBottom[x + 1];
+
+        // Overlap: both pixels are wall.
+        int top = t0 > t1 ? t0 : t1;
+        int bot = b0 < b1 ? b0 : b1;
+
+        u16 *dst = page16 + top * 120 + x / 2;
+
+        for (int y = top; y < bot; y++)
+        {
+            *dst = wall2;
+            dst += 120;
+        }
+
+        // Pixel x extends above/below x+1.
+        if (t0 < t1)
+        {
+            dst = page16 + t0 * 120 + x / 2;
+            for (int y = t0; y < t1; y++)
+            {
+                *dst = (*dst & 0xFF00) | LIGHT_WALL_COLOR_IDX;
+                dst += 120;
+            }
+
+            dst = page16 + b1 * 120 + x / 2;
+            for (int y = b1; y < b0; y++)
+            {
+                *dst = (*dst & 0xFF00) | LIGHT_WALL_COLOR_IDX;
+                dst += 120;
+            }
+        }
+        // Pixel x+1 extends above/below x.
+        else if (t1 < t0)
+        {
+            dst = page16 + t1 * 120 + x / 2;
+            for (int y = t1; y < t0; y++)
+            {
+                *dst = (*dst & 0x00FF)
+                     | (LIGHT_WALL_COLOR_IDX << 8);
+                dst += 120;
+            }
+
+            dst = page16 + b0 * 120 + x / 2;
+            for (int y = b0; y < b1; y++)
+            {
+                *dst = (*dst & 0x00FF)
+                     | (LIGHT_WALL_COLOR_IDX << 8);
+                dst += 120;
+            }
+        }
+    }
+
+    /*
+    u16 *page1 = (u16 *)back_page();
+    const u16 wall =
+        LIGHT_WALL_COLOR_IDX |
+        (LIGHT_WALL_COLOR_IDX << 8);
+
+    for (int x = 0; x < RAY_COUNT; x++)
+    {
+        u16 *dst = page1 + x + wallTop[x] * (SCREEN_WIDTH / 2);
+
+        int height = wallBottom[x] - wallTop[x];
+
+        for (int y = 0; y < height; y++)
+        {
+            *dst = wall;
+            dst += SCREEN_WIDTH / 2;
+        }
+    }
+    */
 }
 
 
@@ -351,23 +461,25 @@ int main() {
     // Blue direction
     pal_bg_mem[DIR_COLOR_IDX] = RGB15(0, 0, 31) | BIT(15);
 
-    /* 
-     * Drawing the map here in both screens could make it faster, 
-     * but we would have to constantly erase the player and rays' positions
-     * which adds overhead and could make it worse
-     * draw_map(MAP_X, MAP_Y);
-     * vid_flip();
-     * draw_map(MAP_X, MAP_Y);
-    */
     while (1) {
         u16 frame_start = REG_TM0CNT_L;
+        u16 work_start = REG_TM0CNT_L;
 
-        u16 update_start = REG_TM0CNT_L;
         update_player();
-        u16 update_end = REG_TM0CNT_L;
-        u16 frame_end = REG_TM0CNT_L;
 
-        debug_update_ticks = update_end - update_start;
+        u16 ray_start = REG_TM0CNT_L;
+        cast_rays();
+        u16 ray_end = REG_TM0CNT_L;
+        debug_raycast_ticks = ray_end - ray_start;
+
+        u16 render_start = REG_TM0CNT_L;
+        render_frame();
+        u16 render_end = REG_TM0CNT_L;
+        debug_render_ticks = render_end - render_start;
+
+        u16 work_end = REG_TM0CNT_L;
+        u16 frame_end = REG_TM0CNT_L;
+        debug_work_ticks = work_end - work_start;
         debug_frame_ticks  = frame_end - frame_start;
 
         debug_work_fps = debug_frame_ticks
