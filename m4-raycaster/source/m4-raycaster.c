@@ -110,7 +110,8 @@ static u32 fps;
 static u16 dt;
 
 // debug
-volatile u32 debug_fps;
+volatile u32 debug_work_fps;
+volatile u32 debug_actual_fps;
 volatile u16 debug_frame_ticks;
 volatile u16 debug_raycast_ticks;
 volatile u16 debug_update_ticks;
@@ -200,7 +201,8 @@ static inline void render_direction() {
         lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
         fx12 xDir = lu_cos(rayAngle);
         fx12 yDir = lu_sin(rayAngle);
-        for (int j = 1; j < RAY_LENGTH + 1; j++ ) {
+        // Gets distance 
+        for (int j = 1; j < fixed_to_int(RAY_LENGTH) + 1; j++) {
             fx12 z = int_to_fixed(j);
             fx12 xRay = playerX+fixed_mul(z, xDir);
             fx12 yRay = playerY+fixed_mul(z, yDir);
@@ -233,7 +235,7 @@ static inline void render_direction() {
         // Draw wall
         u16 wallColor = LIGHT_WALL_COLOR_IDX;
         if (dist < RAY_LENGTH) {
-            m4_rect(i, fixed_to_int(offset), i + 1, fixed_to_int(offset + lineHeight), wallColor);
+            //m4_rect(i, fixed_to_int(offset), i + 1, fixed_to_int(offset + lineHeight), wallColor);
         }
     }
 }
@@ -358,22 +360,25 @@ int main() {
      * draw_map(MAP_X, MAP_Y);
     */
     while (1) {
-        vid_vsync();
-        calc_delta_time();
         u16 frame_start = REG_TM0CNT_L;
 
         u16 update_start = REG_TM0CNT_L;
         update_player();
         u16 update_end = REG_TM0CNT_L;
-        vid_flip();
         u16 frame_end = REG_TM0CNT_L;
 
         debug_update_ticks = update_end - update_start;
         debug_frame_ticks  = frame_end - frame_start;
 
-        debug_fps = debug_frame_ticks
+        debug_work_fps = debug_frame_ticks
             ? (SYSCLK_64 + debug_frame_ticks / 2) / debug_frame_ticks
             : 0;
+
+        vid_vsync();
+        vid_flip();
+
+        calc_delta_time();
+        debug_actual_fps = fps;
     }
 }
 

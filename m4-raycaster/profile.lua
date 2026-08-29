@@ -35,9 +35,14 @@ local FRAME_ADDR = assert(
     "debug_frame_ticks not found"
 )
 
-local FPS_ADDR = assert(
-    symbols.debug_fps,
-    "debug_fps not found"
+local WORK_FPS_ADDR = assert(
+    symbols.debug_work_fps,
+    "debug_work_fps not found"
+)
+
+local ACTUAL_FPS_ADDR = assert(
+    symbols.debug_actual_fps,
+    "debug_actual_fps not found"
 )
 
 local RAYCAST_ADDR = assert(
@@ -50,22 +55,25 @@ console:log(string.format(
     UPDATE_ADDR,
     RAYCAST_ADDR,
     FRAME_ADDR,
-    FPS_ADDR
+    WORK_FPS_ADDR,
+    ACTUAL_FPS_ADDR
 ))
 
 local TIMER_HZ = 262144
 
 callbacks:add("frame", function()
-    local update  = emu:read16(UPDATE_ADDR)
-    local frame   = emu:read16(FRAME_ADDR)
-    local fps     = emu:read32(FPS_ADDR)
+    local update = emu:read16(UPDATE_ADDR)
+    local frame = emu:read16(FRAME_ADDR)
+    local work_fps = emu:read32(WORK_FPS_ADDR)
+    local actual_fps = emu:read32(ACTUAL_FPS_ADDR)
     local raycast = emu:read16(RAYCAST_ADDR)
 
     console:log(string.format(
-        "update: %.2f ms | raycast: %.2f ms | frame: %.2f ms | fps: %d",
+        "update: %.2f ms | raycast: %.2f ms | frame: %.2f ms | work fps: %d | actual fps: %d",
         update  * 1000 / TIMER_HZ,
         raycast * 1000 / TIMER_HZ,
         frame   * 1000 / TIMER_HZ,
-        fps
+        work_fps,
+        actual_fps
     ))
 end)
