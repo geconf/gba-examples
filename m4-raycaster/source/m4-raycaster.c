@@ -231,8 +231,9 @@ static inline void update_player() {
     // Handle moving diagonally at the same speed
     if (moveX && moveY)
     {
-        moveX = moveX*0.707;
-        moveY = moveY*0.707;
+        // Multiply by 0.707
+        moveX = (moveX * 181) >> 8;
+        moveY = (moveY * 181) >> 8;
     }
 
     // Apply Rotation. No need to check for collisions in a raycaster
