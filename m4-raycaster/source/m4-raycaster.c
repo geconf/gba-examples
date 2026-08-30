@@ -1,7 +1,8 @@
 #include "tonc_input.h"
 #include "tonc_math.h"
 #include "tonc_video.h"
-#include <math.h>
+#include "inv_sin_lut.h"
+#include "line_height_lut.h"
 
 
 // typedef
@@ -19,6 +20,7 @@ enum FixedShiftConsts {
 
 enum MathConsts {
     LU_PI = 0x8000,
+    FX_INF = 0x7FFFFFFF
 };
 
 enum TimeConsts {
@@ -73,6 +75,7 @@ static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
 // Walls
 static s16 wallTop[SCREEN_WIDTH];
 static s16 wallBottom[SCREEN_WIDTH];
+static u8 wallAxis[SCREEN_WIDTH];
 
 // Convert to Fixed point
 static inline fx12 int_to_fixed(s32 x) {
@@ -129,10 +132,6 @@ static inline u8* back_page(void) {
 
 static inline s32 fixed_mul(s32 a, s32 b) {
     return (s32)(((s64)a * b) >> FIXED_SHIFT);
-}
-
-static inline s32 fixed_div(s32 a, s32 b) {
-    return (s32)(((s64)a << FIXED_SHIFT) / b);
 }
 
 static inline u32 fixed_abs(s32 x) {
@@ -195,10 +194,10 @@ static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
     return moveCoords;
 }
 
-static inline s16 clamp_steps(
-    u32 currentAxisCoord,
-    s32 delta,
-    u32 otherAxisCoord,
+static inline fx12 clamp_steps(
+    fx12 currentAxisCoord,
+    fx12 delta,
+    fx12 otherAxisCoord,
     bool isVertical
     ) 
 {
@@ -240,16 +239,16 @@ static inline void update_player() {
     playerTheta += rotateTheta;
 
     // Apply translation per axis
-    s16 yDir = lu_sin(playerTheta);
-    s16 yLatDir = lu_sin(playerTheta - (LU_PI >> 1));
-    s16 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
-    s16 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
+    fx12 yDir = lu_sin(playerTheta);
+    fx12 yLatDir = lu_sin(playerTheta - (LU_PI >> 1));
+    fx12 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
+    fx12 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
     playerY += safeStepsY;
 
-    s16 xDir = lu_cos(playerTheta);
-    s16 xLatDir = lu_cos(playerTheta - (LU_PI >> 1));
-    s16 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
-    s16 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
+    fx12 xDir = lu_cos(playerTheta);
+    fx12 xLatDir = lu_cos(playerTheta - (LU_PI >> 1));
+    fx12 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
+    fx12 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
     playerX += safeStepsX;
 }
 
@@ -284,7 +283,8 @@ static inline void cast_rays() {
         // Fish-eye correction
         dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
         // If wall within range
-        fx12 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
+        u32 index = dist >> (TILE_SHIFT + FIXED_SHIFT - 5);
+        fx12 lineHeight = line_height_lut[index];
         if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
             lineHeight = int_to_fixed(SCREEN_HEIGHT);
         }
@@ -300,50 +300,99 @@ static inline void cast_rays() {
     }
 }
 
+typedef enum {
+    RAY_HIT_X,
+    RAY_HIT_Y
+} RayHitSide;
+
+typedef struct {
+    fx12 dist;
+    RayHitSide side;
+} RayHit;
+
+static inline RayHit cast_ray_dda(lu_angle rayAngle) {
+    fx12 xDir = lu_cos(rayAngle);
+    fx12 yDir = lu_sin(rayAngle);
+    fx12 dist = 0;
+    u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
+    u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
+    s32 signX = (xDir > 0) ? 1 : -1;
+    s32 signY = (yDir > 0) ? 1 : -1;
+    u32 nextTileX = playerTileX + 1 * (signX > 0 ? 1: 0);
+    u32 nextTileY = playerTileY + 1 * (signY > 0 ? 1: 0);
+    fx12 invXDir = lu_inv_abs_cos(rayAngle);
+    fx12 invYDir = lu_inv_abs_sin(rayAngle);
+    fx12 boundaryDistX = fixed_abs(int_to_fixed(nextTileX << TILE_SHIFT) - playerX);
+    fx12 boundaryDistY = fixed_abs(int_to_fixed(nextTileY << TILE_SHIFT) - playerY);
+    fx12 tileSize = int_to_fixed(1 << TILE_SHIFT);
+
+    fx12 tMaxX;
+    fx12 tMaxY;
+    fx12 tDeltaX;
+    fx12 tDeltaY;
+
+    RayHitSide side = RAY_HIT_X;
+
+    if (invXDir == FX_INF) {
+        tMaxX   = FX_INF;
+        tDeltaX = FX_INF;
+    }
+    else {
+        tMaxX   = fixed_mul(boundaryDistX, invXDir);
+        tDeltaX = fixed_mul(tileSize, invXDir);
+    }
+
+    if (invYDir == FX_INF) {
+        tMaxY   = FX_INF;
+        tDeltaY = FX_INF;
+    }
+    else {
+        tMaxY   = fixed_mul(boundaryDistY, invYDir);
+        tDeltaY = fixed_mul(tileSize, invYDir);
+    }
+
+    while (dist < RAY_LENGTH) {
+        if (tMaxX < tMaxY) {
+            playerTileX += signX;
+            dist = tMaxX;
+            tMaxX += tDeltaX;
+
+            // entered tile through an X boundary
+            side = RAY_HIT_X;
+        }
+        else {
+            playerTileY += signY;
+            dist = tMaxY;
+            tMaxY += tDeltaY;
+
+            // entered tile through a Y boundary
+            side = RAY_HIT_Y;
+        }
+
+        if (worldMap[playerTileY][playerTileX]) {
+            break;
+        }
+    }
+    return (RayHit) {
+        .dist = dist,
+        .side = side
+    };
+}
+
 static inline void cast_rays_dda() {
     lu_angle initialRayAngle = playerTheta - (FOV >> 1);
     for (int i = 0; i < RAY_COUNT; i++ ) {
         lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
-        fx12 xDir = lu_cos(rayAngle) + 1;
-        fx12 yDir = lu_sin(rayAngle) + 1;
-        fx12 dist = 0;
-        u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
-        u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
-        s32  signX  = (xDir > 0) ?  1 : -1;
-        s32  signY  = (yDir > 0) ?  1 : -1;
-        u32 nextTileX = playerTileX + 1 * (signX > 0 ? 1: 0);
-        u32 nextTileY = playerTileY + 1 * (signY > 0 ? 1: 0);
-        fx12 tMaxX = fixed_div(int_to_fixed(nextTileX << TILE_SHIFT) - playerX, xDir);
-        fx12 tMaxY = fixed_div(int_to_fixed(nextTileY << TILE_SHIFT) - playerY, yDir);
-        fx12 tDeltaX = fixed_div(int_to_fixed(1 << TILE_SHIFT), fixed_abs(xDir));
-        fx12 tDeltaY = fixed_div(int_to_fixed(1 << TILE_SHIFT), fixed_abs(yDir));
-
-        while (dist < RAY_LENGTH) {
-            if (tMaxX < tMaxY) {
-                playerTileX += signX;
-                dist = tMaxX;
-                tMaxX += tDeltaX;
-
-                // entered tile through an X boundary
-            }
-            else {
-                playerTileY += signY;
-                dist = tMaxY;
-                tMaxY += tDeltaY;
-
-                // entered tile through a Y boundary
-            }
-
-            if (worldMap[playerTileY][playerTileX]) {
-                break;
-            }
-        }
+        RayHit rayHit = cast_ray_dda(rayAngle);
+        fx12 dist = rayHit.dist;
+        wallAxis[i] = rayHit.side == RAY_HIT_X ? 0 : 1;
 
 
         // Fish-eye correction
         dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
         // If wall within range
-        fx12 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
+        u32 index = dist >> (TILE_SHIFT + FIXED_SHIFT - 5);
+        fx12 lineHeight = line_height_lut[index];
         if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
             lineHeight = int_to_fixed(SCREEN_HEIGHT);
         }
@@ -382,12 +431,8 @@ static inline void render_frame() {
         floor,
         SCREEN_WIDTH * (SCREEN_HEIGHT / 2)
     );
-    //u16 wallColor = LIGHT_WALL_COLOR_IDX;
 
     u16 *page16 = (u16 *)page;
-    const u16 wall2 =
-        LIGHT_WALL_COLOR_IDX |
-        (LIGHT_WALL_COLOR_IDX << 8);
 
     for (int x = 0; x < SCREEN_WIDTH; x += 2)
     {
@@ -396,7 +441,17 @@ static inline void render_frame() {
         int t1 = wallTop[x + 1];
         int b1 = wallBottom[x + 1];
 
-        // Overlap: both pixels are wall.
+        u8 c0 = wallAxis[x]
+            ? DARK_WALL_COLOR_IDX
+            : LIGHT_WALL_COLOR_IDX;
+
+        u8 c1 = wallAxis[x + 1]
+            ? DARK_WALL_COLOR_IDX
+            : LIGHT_WALL_COLOR_IDX;
+
+        u16 wall2 = c0 | (c1 << 8);
+
+        // Both columns contain wall here.
         int top = t0 > t1 ? t0 : t1;
         int bot = b0 < b1 ? b0 : b1;
 
@@ -408,63 +463,47 @@ static inline void render_frame() {
             dst += 120;
         }
 
-        // Pixel x extends above/below x+1.
+        // Column x extends beyond x+1.
         if (t0 < t1)
         {
             dst = page16 + t0 * 120 + x / 2;
+
             for (int y = t0; y < t1; y++)
             {
-                *dst = (*dst & 0xFF00) | LIGHT_WALL_COLOR_IDX;
+                *dst = (*dst & 0xFF00) | c0;
                 dst += 120;
             }
 
             dst = page16 + b1 * 120 + x / 2;
+
             for (int y = b1; y < b0; y++)
             {
-                *dst = (*dst & 0xFF00) | LIGHT_WALL_COLOR_IDX;
+                *dst = (*dst & 0xFF00) | c0;
                 dst += 120;
             }
         }
-        // Pixel x+1 extends above/below x.
+        // Column x+1 extends beyond x.
         else if (t1 < t0)
         {
             dst = page16 + t1 * 120 + x / 2;
+
             for (int y = t1; y < t0; y++)
             {
                 *dst = (*dst & 0x00FF)
-                     | (LIGHT_WALL_COLOR_IDX << 8);
+                     | (c1 << 8);
                 dst += 120;
             }
 
             dst = page16 + b0 * 120 + x / 2;
+
             for (int y = b0; y < b1; y++)
             {
                 *dst = (*dst & 0x00FF)
-                     | (LIGHT_WALL_COLOR_IDX << 8);
+                     | (c1 << 8);
                 dst += 120;
             }
         }
     }
-
-    /*
-    u16 *page1 = (u16 *)back_page();
-    const u16 wall =
-        LIGHT_WALL_COLOR_IDX |
-        (LIGHT_WALL_COLOR_IDX << 8);
-
-    for (int x = 0; x < RAY_COUNT; x++)
-    {
-        u16 *dst = page1 + x + wallTop[x] * (SCREEN_WIDTH / 2);
-
-        int height = wallBottom[x] - wallTop[x];
-
-        for (int y = 0; y < height; y++)
-        {
-            *dst = wall;
-            dst += SCREEN_WIDTH / 2;
-        }
-    }
-    */
 }
 
 
