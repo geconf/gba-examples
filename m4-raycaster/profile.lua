@@ -40,6 +40,11 @@ local ACTUAL_FPS_ADDR = assert(
     "debug_actual_fps not found"
 )
 
+local UPDATE_ADDR = assert(
+    symbols.debug_update_ticks,
+    "debug_update_ticks not found"
+)
+
 local RAYCAST_ADDR = assert(
     symbols.debug_raycast_ticks,
     "debug_raycast_ticks not found"
@@ -51,8 +56,9 @@ local RENDER_ADDR = assert(
 )
 
 console:log(string.format(
-    "Profiler symbols: work=%08X raycast=%08X work_fps=%08X, actual_fps=%08X",
+    "Profiler symbols: work=%08X update=%08X, raycast=%08X, render=%08X, work_fps=%08X, actual_fps=%08X",
     WORK_ADDR,
+    UPDATE_ADDR,
     RAYCAST_ADDR,
     RENDER_ADDR,
     WORK_FPS_ADDR,
@@ -65,12 +71,14 @@ callbacks:add("frame", function()
     local work = emu:read16(WORK_ADDR)
     local work_fps = emu:read32(WORK_FPS_ADDR)
     local actual_fps = emu:read32(ACTUAL_FPS_ADDR)
+    local update = emu:read16(UPDATE_ADDR)
     local raycast = emu:read16(RAYCAST_ADDR)
     local render = emu:read16(RENDER_ADDR)
 
     console:log(string.format(
-        "work: %.2f ms | raycast: %.2f ms | render: %.2f ms | work fps: %d | actual fps: %d",
+        "work: %.2f ms | update: %.2f ms | raycast: %.2f ms | render: %.2f ms | work fps: %d | actual fps: %d",
         work  * 1000 / TIMER_HZ,
+        update * 1000 / TIMER_HZ,
         raycast * 1000 / TIMER_HZ,
         render * 1000 / TIMER_HZ,
         work_fps,

@@ -121,6 +121,7 @@ static u16 dt;
 volatile u32 debug_work_fps;
 volatile u32 debug_actual_fps;
 volatile u16 debug_frame_ticks;
+volatile u32 debug_update_ticks;
 volatile u16 debug_raycast_ticks;
 volatile u16 debug_render_ticks;
 volatile u16 debug_work_ticks;
@@ -562,7 +563,10 @@ int main() {
         u16 frame_start = REG_TM0CNT_L;
         u16 work_start = REG_TM0CNT_L;
 
+        u16 update_start = REG_TM0CNT_L;
         update_player();
+        u16 update_end = REG_TM0CNT_L;
+        debug_update_ticks = update_end - update_start;
 
         u16 ray_start = REG_TM0CNT_L;
         cast_rays_dda();
