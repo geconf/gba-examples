@@ -255,13 +255,12 @@ static inline void update_player() {
 
 static inline void cast_rays() {
     lu_angle initialRayAngle = playerTheta - (FOV >> 1);
-    //for (int i = 0; i < SCREEN_WIDTH; i++ ) {
     for (int i = 0; i < RAY_COUNT; i++ ) {
         lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
         fx12 xDir = lu_cos(rayAngle);
         fx12 yDir = lu_sin(rayAngle);
-        // Gets distance 
         fx12 dist = RAY_LENGTH;
+        // First pass, coarser ray marching
         for (int j = 1; j < fixed_to_int(RAY_LENGTH) + 1; j = j + 1) {
             fx12 z = int_to_fixed(j);
             fx12 xRay = playerX+fixed_mul(z, xDir);
@@ -273,6 +272,7 @@ static inline void cast_rays() {
         }
         fx12 xDist = fixed_mul(dist, xDir);
         fx12 yDist = fixed_mul(dist, yDir);
+        // Second pass, finer
         for (fx12 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
             fx12 xRay = playerX + xDist + fixed_mul(j, xDir);
             fx12 yRay = playerY + yDist + fixed_mul(j, yDir);
@@ -292,11 +292,68 @@ static inline void cast_rays() {
         if (offset < 0) {
             offset = 0;
         }
-        // Draw wall
+        // Record wall
         if (dist < RAY_LENGTH) {
             wallTop[i] = fixed_to_int(offset);
             wallBottom[i] = fixed_to_int(offset + lineHeight);
         }
+    }
+}
+
+static inline void cast_rays_dda() {
+    lu_angle initialRayAngle = playerTheta - (FOV >> 1);
+    for (int i = 0; i < RAY_COUNT; i++ ) {
+        lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
+        fx12 xDir = lu_cos(rayAngle) + 1;
+        fx12 yDir = lu_sin(rayAngle) + 1;
+        fx12 dist = 0;
+        u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
+        u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
+        s32  signX  = (xDir > 0) ?  1 : -1;
+        s32  signY  = (yDir > 0) ?  1 : -1;
+        u32 nextTileX = playerTileX + 1 * (signX > 0 ? 1: 0);
+        u32 nextTileY = playerTileY + 1 * (signY > 0 ? 1: 0);
+        fx12 tMaxX = fixed_div(int_to_fixed(nextTileX << TILE_SHIFT) - playerX, xDir);
+        fx12 tMaxY = fixed_div(int_to_fixed(nextTileY << TILE_SHIFT) - playerY, yDir);
+        fx12 tDeltaX = fixed_div(int_to_fixed(1 << TILE_SHIFT), fixed_abs(xDir));
+        fx12 tDeltaY = fixed_div(int_to_fixed(1 << TILE_SHIFT), fixed_abs(yDir));
+
+        while (dist < RAY_LENGTH) {
+            if (tMaxX < tMaxY) {
+                playerTileX += signX;
+                dist = tMaxX;
+                tMaxX += tDeltaX;
+
+                // entered tile through an X boundary
+            }
+            else {
+                playerTileY += signY;
+                dist = tMaxY;
+                tMaxY += tDeltaY;
+
+                // entered tile through a Y boundary
+            }
+
+            if (worldMap[playerTileY][playerTileX]) {
+                break;
+            }
+        }
+
+
+        // Fish-eye correction
+        dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
+        // If wall within range
+        fx12 lineHeight = fixed_div(int_to_fixed(SCREEN_HEIGHT), dist >> TILE_SHIFT);
+        if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
+            lineHeight = int_to_fixed(SCREEN_HEIGHT);
+        }
+        fx12 offset = (int_to_fixed(SCREEN_HEIGHT) >> 1) - (lineHeight >> 1);
+        if (offset < 0) {
+            offset = 0;
+        }
+        // Record wall
+        wallTop[i] = fixed_to_int(offset);
+        wallBottom[i] = fixed_to_int(offset + lineHeight);
     }
 }
 
@@ -325,7 +382,7 @@ static inline void render_frame() {
         floor,
         SCREEN_WIDTH * (SCREEN_HEIGHT / 2)
     );
-    u16 wallColor = LIGHT_WALL_COLOR_IDX;
+    //u16 wallColor = LIGHT_WALL_COLOR_IDX;
 
     u16 *page16 = (u16 *)page;
     const u16 wall2 =
@@ -468,7 +525,7 @@ int main() {
         update_player();
 
         u16 ray_start = REG_TM0CNT_L;
-        cast_rays();
+        cast_rays_dda();
         u16 ray_end = REG_TM0CNT_L;
         debug_raycast_ticks = ray_end - ray_start;
 
