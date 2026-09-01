@@ -66,10 +66,10 @@ enum PlayerConsts {
     FOV = LU_PI >> 1,
     HALF_FOV = FOV >> 1,
     RAY_LENGTH = INT_TO_FIXED(100),
-    RAY_COUNT = 240,
+    RAY_COUNT = 120,
     RAY_STEP = FOV / RAY_COUNT,
-    LINEAR_SPEED = 5,
-    ANGULAR_SPEED = LU_PI >> 14,
+    LINEAR_SPEED = 13,
+    ANGULAR_SPEED = LU_PI >> 13,
     PLAYER_START_X = INT_TO_FIXED(2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE >> 1),
     PLAYER_START_Y = INT_TO_FIXED(5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE >> 1),
     PLAYER_START_THETA = 0,
@@ -288,16 +288,16 @@ static inline void update_player() {
     fx12 yDir = lu_sin(playerTheta);
     fx12 yLatDir = lu_sin(playerTheta - (LU_PI >> 1));
     fx12 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
-    fx12 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
-    playerY += safeStepsY;
-    //playerY += deltaY;
+    //fx12 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
+    //playerY += safeStepsY;
+    playerY += deltaY;
 
     fx12 xDir = lu_cos(playerTheta);
     fx12 xLatDir = lu_cos(playerTheta - (LU_PI >> 1));
     fx12 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
-    fx12 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
-    playerX += safeStepsX;
-    //playerX += deltaX;
+    //fx12 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
+    //playerX += safeStepsX;
+    playerX += deltaX;
 }
 
 static inline void cast_rays() {
@@ -499,16 +499,19 @@ static inline void render_frame() {
 
     for (int x = 0; x < SCREEN_WIDTH; x += 2)
     {
-        int t0 = wallTop[x];
-        int b0 = wallBottom[x];
-        int t1 = wallTop[x + 1];
-        int b1 = wallBottom[x + 1];
+        int ray0 = (x * RAY_COUNT) / SCREEN_WIDTH;
+        int ray1 = ((x + 1) * RAY_COUNT) / SCREEN_WIDTH;
 
-        u8 c0 = wallAxis[x]
+        int t0 = wallTop[ray0];
+        int b0 = wallBottom[ray0];
+        int t1 = wallTop[ray1];
+        int b1 = wallBottom[ray1];
+
+        u8 c0 = wallAxis[ray0]
             ? DARK_WALL_COLOR_IDX
             : LIGHT_WALL_COLOR_IDX;
 
-        u8 c1 = wallAxis[x + 1]
+        u8 c1 = wallAxis[ray1]
             ? DARK_WALL_COLOR_IDX
             : LIGHT_WALL_COLOR_IDX;
 
