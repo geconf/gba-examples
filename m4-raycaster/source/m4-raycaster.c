@@ -451,7 +451,7 @@ static inline void cast_rays_dda() {
     for (int i = 0; i < RAY_COUNT; i++ ) {
         RayHit rayHit = cast_ray_dda(rayAngle, rayOrigin);
         fx12 dist = rayHit.dist;
-        wallAxis[i] = rayHit.side == RAY_HIT_X ? 0 : 1;
+        wallAxis[i] = rayHit.side;
 
         // Fish-eye correction
         dist = fixed_mul(dist, fishEyeCorrection[i]);
