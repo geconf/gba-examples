@@ -4,7 +4,6 @@
 #include "inv_sin_lut.h"
 #include "line_height_lut.h"
 
-
 // typedef
 typedef s32 fx12;
 typedef u16 lu_angle;
@@ -569,7 +568,6 @@ static inline void render_frame() {
         }
     }
 }
-
 
 static inline void init_timebase(void) {
     REG_TM0CNT_L = 0;
