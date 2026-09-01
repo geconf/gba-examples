@@ -360,21 +360,21 @@ static inline s32 angle_sign_sin(lu_angle a)
     return (a & LU_PI) ? -1 : 1;
 }
 
-static inline RayHit cast_ray_dda(lu_angle rayAngle, u32 playerTileX, u32 playerTileY, fx12 fracX, fx12 fracY) {
-    u32 mapIndex = playerTileY * MAP_WIDTH + playerTileX;
+typedef struct {
+    fx12 boundaryDistX[2];
+    fx12 boundaryDistY[2];
+    u32 mapIndex;
+} RayOrigin;
+
+static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
     const s32 signX = angle_sign_cos(rayAngle);
     const s32 signY = angle_sign_sin(rayAngle);
     const fx12 invXDir = lu_inv_abs_cos(rayAngle);
     const fx12 invYDir = lu_inv_abs_sin(rayAngle);
 
-    const u32 nextTileX = playerTileX + (signX > 0);
-    const u32 nextTileY = playerTileY + (signY > 0);
-    const fx12 boundaryDistX = fixed_abs(int_to_fixed(nextTileX << TILE_SHIFT) - playerX);
-    const fx12 boundaryDistY = fixed_abs(int_to_fixed(nextTileY << TILE_SHIFT) - playerY);
-    /*
-    const fx12 boundaryDistX = signX > 0 ? TILE_SIZE_FX - fracX : fracX;
-    const fx12 boundaryDistY = signY > 0 ? TILE_SIZE_FX - fracY : fracY;
-    */
+    u32 mapIndex = rayOrigin.mapIndex;
+    fx12 boundaryDistX = signX > 0 ? rayOrigin.boundaryDistX[0] : rayOrigin.boundaryDistX[1];
+    fx12 boundaryDistY = signY > 0 ? rayOrigin.boundaryDistY[0] : rayOrigin.boundaryDistY[1];
 
     fx12 tMaxX;
     fx12 tMaxY;
@@ -434,10 +434,23 @@ static inline void cast_rays_dda() {
     lu_angle rayAngle = playerTheta - HALF_FOV;
     u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
     u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
-    fx12 fracX = playerX & (TILE_SIZE_FX - 1);
-    fx12 fracY = playerY & (TILE_SIZE_FX - 1);
+
+    RayOrigin rayOrigin;
+    rayOrigin.mapIndex = playerTileY * MAP_WIDTH + playerTileX;
+
+    fx12 left   = int_to_fixed(playerTileX << TILE_SHIFT);
+    fx12 right  = left + TILE_SIZE_FX;
+    fx12 top    = int_to_fixed(playerTileY << TILE_SHIFT);
+    fx12 bottom = top + TILE_SIZE_FX;
+
+    rayOrigin.boundaryDistX[0] = right - playerX;
+    rayOrigin.boundaryDistX[1] = playerX - left;
+
+    rayOrigin.boundaryDistY[0] = bottom - playerY;
+    rayOrigin.boundaryDistY[1] = playerY - top;
+
     for (int i = 0; i < RAY_COUNT; i++ ) {
-        RayHit rayHit = cast_ray_dda(rayAngle, playerTileX, playerTileY, fracX, fracY);
+        RayHit rayHit = cast_ray_dda(rayAngle, rayOrigin);
         fx12 dist = rayHit.dist;
         wallAxis[i] = rayHit.side == RAY_HIT_X ? 0 : 1;
 
@@ -450,9 +463,6 @@ static inline void cast_rays_dda() {
             lineHeight = SCREEN_HEIGHT_FX;
         }
         fx12 offset = HALF_SCREEN_HEIGHT_FX - (lineHeight >> 1);
-        if (offset < 0) {
-            offset = 0;
-        }
         // Record wall
         wallTop[i] = fixed_to_int(offset);
         wallBottom[i] = fixed_to_int(offset + lineHeight);
