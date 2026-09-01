@@ -9,6 +9,17 @@
 typedef s32 fx12;
 typedef u16 lu_angle;
 
+typedef enum {
+    RAY_HIT_X,
+    RAY_HIT_Y
+} RayHitSide;
+
+typedef struct {
+    fx12 dist;
+    RayHitSide side;
+} RayHit;
+
+
 // Fixed-point math
 enum FixedShiftConsts {
     FIXED_SHIFT = 12,
@@ -20,6 +31,8 @@ enum FixedShiftConsts {
 
 enum MathConsts {
     LU_PI = 0x8000,
+    LU_HALF_PI = LU_PI >> 1,
+    LU_3HALF_PI = LU_PI + LU_HALF_PI,
     FX_INF = 0x7FFFFFFF
 };
 
@@ -30,11 +43,12 @@ enum TimeConsts {
 
 enum MapConsts {
     TILE_SIZE = 8,
-    TILE_SIZE_FIXED = INT_TO_FIXED(8),
+    TILE_SIZE_FX = INT_TO_FIXED(8),
     TILE_SHIFT = 3,
-    HALF_TILE_FIXED = TILE_SIZE_FIXED >> 1,
+    HALF_TILE_FX = TILE_SIZE_FX >> 1,
     MAP_WIDTH = 9,
     MAP_HEIGHT = 9,
+    LINE_HEIGHT_LUT_SHIFT = TILE_SHIFT + FIXED_SHIFT - LINE_HEIGHT_LUT_FRAC_BITS,
 };
 
 enum ColorConsts {
@@ -48,16 +62,23 @@ enum ColorConsts {
 
 
 enum PlayerConsts {
-    PLAYER_RADIUS = TILE_SIZE_FIXED >> 2,
+    PLAYER_RADIUS = TILE_SIZE_FX >> 2,
     PLAYER_RADIUS_SQUARED = (PLAYER_RADIUS * PLAYER_RADIUS) >> FIXED_SHIFT,
     FOV = LU_PI >> 1,
+    HALF_FOV = FOV >> 1,
     RAY_LENGTH = INT_TO_FIXED(100),
     RAY_COUNT = 240,
+    RAY_STEP = FOV / RAY_COUNT,
     LINEAR_SPEED = 5,
     ANGULAR_SPEED = LU_PI >> 14,
     PLAYER_START_X = INT_TO_FIXED(2*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE >> 1),
     PLAYER_START_Y = INT_TO_FIXED(5*TILE_SIZE) + INT_TO_FIXED(TILE_SIZE >> 1),
     PLAYER_START_THETA = 0,
+};
+
+enum HardwareConsts {
+    SCREEN_HEIGHT_FX = INT_TO_FIXED(SCREEN_HEIGHT),
+    HALF_SCREEN_HEIGHT_FX = SCREEN_HEIGHT_FX >> 1,
 };
 
 
@@ -72,10 +93,34 @@ static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
+static const u8 rayMap[MAP_WIDTH * MAP_HEIGHT] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 0, 1, 1, 1, 0, 0, 1,
+    1, 0, 0, 1, 0, 0, 0, 1, 1,
+    1, 0, 0, 1, 0, 0, 0, 1, 1,
+    1, 0, 0, 0, 0, 1, 0, 0, 1,
+    1, 0, 0, 0, 0, 1, 0, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1
+};
+
 // Walls
 static s16 wallTop[SCREEN_WIDTH];
 static s16 wallBottom[SCREEN_WIDTH];
 static u8 wallAxis[SCREEN_WIDTH];
+
+// Fish eye correction
+static fx12 fishEyeCorrection[RAY_COUNT];
+
+static inline void init_fish_eye_correction(void)
+{
+    lu_angle angle = -HALF_FOV;
+
+    for (int i = 0; i < RAY_COUNT; i++) {
+        fishEyeCorrection[i] = lu_cos(angle);
+        angle += RAY_STEP;
+    }
+}
 
 // Convert to Fixed point
 static inline fx12 int_to_fixed(s32 x) {
@@ -165,12 +210,12 @@ static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
             // Get the fixed coords for the AABB to check against
             s32 neighborX = int_to_fixed(neighborTileX * TILE_SIZE);
             s32 neighborY = int_to_fixed(neighborTileY * TILE_SIZE);
-            s32 neighborCenterX = neighborX + HALF_TILE_FIXED;
-            s32 neighborCenterY = neighborY + HALF_TILE_FIXED;
+            s32 neighborCenterX = neighborX + HALF_TILE_FX;
+            s32 neighborCenterY = neighborY + HALF_TILE_FX;
             s32 differenceX = playerCenterX - neighborCenterX;
             s32 differenceY = playerCenterY - neighborCenterY;
-            s32 clampX = clamp(differenceX, -HALF_TILE_FIXED, HALF_TILE_FIXED);
-            s32 clampY = clamp(differenceY, -HALF_TILE_FIXED, HALF_TILE_FIXED);
+            s32 clampX = clamp(differenceX, -HALF_TILE_FX, HALF_TILE_FX);
+            s32 clampY = clamp(differenceY, -HALF_TILE_FX, HALF_TILE_FX);
             s32 closestX = neighborCenterX + clampX;
             s32 closestY = neighborCenterY + clampY;
             s32 distanceX = closestX - playerCenterX;
@@ -246,18 +291,19 @@ static inline void update_player() {
     fx12 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
     fx12 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
     playerY += safeStepsY;
+    //playerY += deltaY;
 
     fx12 xDir = lu_cos(playerTheta);
     fx12 xLatDir = lu_cos(playerTheta - (LU_PI >> 1));
     fx12 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
     fx12 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
     playerX += safeStepsX;
+    //playerX += deltaX;
 }
 
 static inline void cast_rays() {
-    lu_angle initialRayAngle = playerTheta - (FOV >> 1);
+    lu_angle rayAngle = playerTheta - HALF_FOV;
     for (int i = 0; i < RAY_COUNT; i++ ) {
-        lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
         fx12 xDir = lu_cos(rayAngle);
         fx12 yDir = lu_sin(rayAngle);
         fx12 dist = RAY_LENGTH;
@@ -283,7 +329,7 @@ static inline void cast_rays() {
             }
         }
         // Fish-eye correction
-        dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
+        dist = fixed_mul(dist, fishEyeCorrection[i]);
         // If wall within range
         u32 index = dist >> (TILE_SHIFT + FIXED_SHIFT - 5);
         fx12 lineHeight = line_height_lut[index];
@@ -299,34 +345,36 @@ static inline void cast_rays() {
             wallTop[i] = fixed_to_int(offset);
             wallBottom[i] = fixed_to_int(offset + lineHeight);
         }
+        rayAngle += RAY_STEP;
     }
 }
 
-typedef enum {
-    RAY_HIT_X,
-    RAY_HIT_Y
-} RayHitSide;
 
-typedef struct {
-    fx12 dist;
-    RayHitSide side;
-} RayHit;
+static inline s32 angle_sign_cos(lu_angle a)
+{
+    return ((a + LU_HALF_PI) & LU_PI) ? -1 : 1;
+}
 
-static inline RayHit cast_ray_dda(lu_angle rayAngle) {
-    fx12 xDir = lu_cos(rayAngle);
-    fx12 yDir = lu_sin(rayAngle);
-    fx12 dist = 0;
-    u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
-    u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
-    s32 signX = (xDir > 0) ? 1 : -1;
-    s32 signY = (yDir > 0) ? 1 : -1;
-    u32 nextTileX = playerTileX + 1 * (signX > 0 ? 1: 0);
-    u32 nextTileY = playerTileY + 1 * (signY > 0 ? 1: 0);
-    fx12 invXDir = lu_inv_abs_cos(rayAngle);
-    fx12 invYDir = lu_inv_abs_sin(rayAngle);
-    fx12 boundaryDistX = fixed_abs(int_to_fixed(nextTileX << TILE_SHIFT) - playerX);
-    fx12 boundaryDistY = fixed_abs(int_to_fixed(nextTileY << TILE_SHIFT) - playerY);
-    fx12 tileSize = int_to_fixed(1 << TILE_SHIFT);
+static inline s32 angle_sign_sin(lu_angle a)
+{
+    return (a & LU_PI) ? -1 : 1;
+}
+
+static inline RayHit cast_ray_dda(lu_angle rayAngle, u32 playerTileX, u32 playerTileY, fx12 fracX, fx12 fracY) {
+    u32 mapIndex = playerTileY * MAP_WIDTH + playerTileX;
+    const s32 signX = angle_sign_cos(rayAngle);
+    const s32 signY = angle_sign_sin(rayAngle);
+    const fx12 invXDir = lu_inv_abs_cos(rayAngle);
+    const fx12 invYDir = lu_inv_abs_sin(rayAngle);
+
+    const u32 nextTileX = playerTileX + (signX > 0);
+    const u32 nextTileY = playerTileY + (signY > 0);
+    const fx12 boundaryDistX = fixed_abs(int_to_fixed(nextTileX << TILE_SHIFT) - playerX);
+    const fx12 boundaryDistY = fixed_abs(int_to_fixed(nextTileY << TILE_SHIFT) - playerY);
+    /*
+    const fx12 boundaryDistX = signX > 0 ? TILE_SIZE_FX - fracX : fracX;
+    const fx12 boundaryDistY = signY > 0 ? TILE_SIZE_FX - fracY : fracY;
+    */
 
     fx12 tMaxX;
     fx12 tMaxY;
@@ -335,13 +383,14 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle) {
 
     RayHitSide side = RAY_HIT_X;
 
+    fx12 dist = 0;
     if (invXDir == FX_INF) {
         tMaxX   = FX_INF;
         tDeltaX = FX_INF;
     }
     else {
         tMaxX   = fixed_mul(boundaryDistX, invXDir);
-        tDeltaX = fixed_mul(tileSize, invXDir);
+        tDeltaX = invXDir << TILE_SHIFT;
     }
 
     if (invYDir == FX_INF) {
@@ -350,12 +399,12 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle) {
     }
     else {
         tMaxY   = fixed_mul(boundaryDistY, invYDir);
-        tDeltaY = fixed_mul(tileSize, invYDir);
+        tDeltaY = invYDir << TILE_SHIFT;
     }
 
-    while (dist < RAY_LENGTH) {
+    while (1) {
         if (tMaxX < tMaxY) {
-            playerTileX += signX;
+            mapIndex += signX;
             dist = tMaxX;
             tMaxX += tDeltaX;
 
@@ -363,7 +412,7 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle) {
             side = RAY_HIT_X;
         }
         else {
-            playerTileY += signY;
+            mapIndex += signY * MAP_WIDTH;
             dist = tMaxY;
             tMaxY += tDeltaY;
 
@@ -371,7 +420,7 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle) {
             side = RAY_HIT_Y;
         }
 
-        if (worldMap[playerTileY][playerTileX]) {
+        if (rayMap[mapIndex]) {
             break;
         }
     }
@@ -382,29 +431,32 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle) {
 }
 
 static inline void cast_rays_dda() {
-    lu_angle initialRayAngle = playerTheta - (FOV >> 1);
+    lu_angle rayAngle = playerTheta - HALF_FOV;
+    u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
+    u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
+    fx12 fracX = playerX & (TILE_SIZE_FX - 1);
+    fx12 fracY = playerY & (TILE_SIZE_FX - 1);
     for (int i = 0; i < RAY_COUNT; i++ ) {
-        lu_angle rayAngle = initialRayAngle + fixed_mul((int_to_fixed(i)/SCREEN_WIDTH), FOV);
-        RayHit rayHit = cast_ray_dda(rayAngle);
+        RayHit rayHit = cast_ray_dda(rayAngle, playerTileX, playerTileY, fracX, fracY);
         fx12 dist = rayHit.dist;
         wallAxis[i] = rayHit.side == RAY_HIT_X ? 0 : 1;
 
-
         // Fish-eye correction
-        dist = fixed_mul(dist, lu_cos(rayAngle - playerTheta));
+        dist = fixed_mul(dist, fishEyeCorrection[i]);
         // If wall within range
-        u32 index = dist >> (TILE_SHIFT + FIXED_SHIFT - 5);
+        u32 index = dist >> LINE_HEIGHT_LUT_SHIFT;
         fx12 lineHeight = line_height_lut[index];
-        if (lineHeight > int_to_fixed(SCREEN_HEIGHT)) {
-            lineHeight = int_to_fixed(SCREEN_HEIGHT);
+        if (lineHeight > SCREEN_HEIGHT_FX) {
+            lineHeight = SCREEN_HEIGHT_FX;
         }
-        fx12 offset = (int_to_fixed(SCREEN_HEIGHT) >> 1) - (lineHeight >> 1);
+        fx12 offset = HALF_SCREEN_HEIGHT_FX - (lineHeight >> 1);
         if (offset < 0) {
             offset = 0;
         }
         // Record wall
         wallTop[i] = fixed_to_int(offset);
         wallBottom[i] = fixed_to_int(offset + lineHeight);
+        rayAngle += RAY_STEP;
     }
 }
 
@@ -545,6 +597,8 @@ int main() {
     REG_DISPCNT = DCNT_MODE4 | DCNT_BG2;
 
     init_timebase();
+
+    init_fish_eye_correction();
 
     // Set up colors
     // Black background
