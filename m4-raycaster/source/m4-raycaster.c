@@ -89,6 +89,7 @@ static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
     {1, 0, 0, 1, 0, 0, 0, 1, 1},
     {1, 0, 0, 0, 0, 1, 0, 0, 1},
     {1, 0, 0, 0, 0, 1, 0, 0, 1},
+    {1, 0, 0, 0, 0, 0, 0, 0, 1},
     {1, 1, 1, 1, 1, 1, 1, 1, 1}
 };
 
@@ -100,6 +101,7 @@ static const u8 rayMap[MAP_WIDTH * MAP_HEIGHT] = {
     1, 0, 0, 1, 0, 0, 0, 1, 1,
     1, 0, 0, 0, 0, 1, 0, 0, 1,
     1, 0, 0, 0, 0, 1, 0, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 1,
     1, 1, 1, 1, 1, 1, 1, 1, 1
 };
 
@@ -429,7 +431,7 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
     };
 }
 
-static inline void cast_rays_dda() {
+IWRAM_CODE void cast_rays_dda(void) {
     lu_angle rayAngle = playerTheta - HALF_FOV;
     u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
     u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
