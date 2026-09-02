@@ -471,7 +471,7 @@ IWRAM_CODE void cast_rays_dda(void) {
     }
 }
 
-static inline void render_frame() {
+IWRAM_CODE void render_frame() {
     u8 *page = back_page();
     u32 sky =
         BLACK_COLOR_IDX |
