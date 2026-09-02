@@ -431,7 +431,7 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
     };
 }
 
-IWRAM_CODE void cast_rays_dda(void) {
+IWRAM_CODE __attribute__((target("arm"))) void cast_rays_dda(void) {
     lu_angle rayAngle = playerTheta - HALF_FOV;
     u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
     u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
