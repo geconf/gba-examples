@@ -57,6 +57,16 @@ enum ColorConsts {
     FLOOR_COLOR_IDX = 3,
     LIGHT_WALL_COLOR_IDX = 4,
     DARK_WALL_COLOR_IDX = 5,
+    SKY_FILL_WORD = 
+        BLACK_COLOR_IDX |
+        (BLACK_COLOR_IDX << 8) |
+        (BLACK_COLOR_IDX << 16) |
+        (BLACK_COLOR_IDX << 24),
+    FLOOR_FILL_WORD = 
+        FLOOR_COLOR_IDX |
+        (FLOOR_COLOR_IDX << 8) |
+        (FLOOR_COLOR_IDX << 16) |
+        (FLOOR_COLOR_IDX << 24),
 };
 
 
@@ -66,7 +76,8 @@ enum PlayerConsts {
     FOV = LU_PI >> 1,
     HALF_FOV = FOV >> 1,
     RAY_LENGTH = INT_TO_FIXED(100),
-    RAY_COUNT = 120,
+    RAY_PIXEL_SCALE_SHIFT = 1, // 120 Rays
+    RAY_COUNT = SCREEN_WIDTH >> RAY_PIXEL_SCALE_SHIFT,
     RAY_STEP = FOV / RAY_COUNT,
     LINEAR_SPEED = 13,
     ANGULAR_SPEED = LU_PI >> 13,
@@ -76,10 +87,16 @@ enum PlayerConsts {
 };
 
 enum HardwareConsts {
+    HALF_SCREEN_HEIGHT = SCREEN_HEIGHT >> 1,
     SCREEN_HEIGHT_FX = INT_TO_FIXED(SCREEN_HEIGHT),
     HALF_SCREEN_HEIGHT_FX = SCREEN_HEIGHT_FX >> 1,
 };
 
+
+enum VideoConsts {
+    PIXELS_PER_U16 = 2,
+    FRAMEBUFFER_STRIDE_U16 = SCREEN_WIDTH / PIXELS_PER_U16,
+};
 
 static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
     {1, 1, 1, 1, 1, 1, 1, 1, 1},
@@ -192,7 +209,7 @@ static inline u32 pixel_in_collision(u32 x, u32 y){
     return worldMap[playerTileY][playerTileX];
 }
 
-static inline POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
+IWRAM_CODE __attribute__((target("arm"))) POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
     s32 playerTileX = fixed_to_int(playerCenterX) >> TILE_SHIFT;
     s32 playerTileY = fixed_to_int(playerCenterY) >> TILE_SHIFT;
     POINT moveCoords = { 0, 0 };
@@ -290,16 +307,16 @@ static inline void update_player() {
     fx12 yDir = lu_sin(playerTheta);
     fx12 yLatDir = lu_sin(playerTheta - (LU_PI >> 1));
     fx12 deltaY = fixed_mul(moveY, yDir) + fixed_mul(moveX, yLatDir);
-    //fx12 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
-    //playerY += safeStepsY;
-    playerY += deltaY;
+    fx12 safeStepsY = clamp_steps(playerY, deltaY, playerX, true);
+    playerY += safeStepsY;
+    //playerY += deltaY;
 
     fx12 xDir = lu_cos(playerTheta);
     fx12 xLatDir = lu_cos(playerTheta - (LU_PI >> 1));
     fx12 deltaX = fixed_mul(moveY, xDir) + fixed_mul(moveX, xLatDir);
-    //fx12 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
-    //playerX += safeStepsX;
-    playerX += deltaX;
+    fx12 safeStepsX = clamp_steps(playerX, deltaX, playerY, false);
+    playerX += safeStepsX;
+    //playerX += deltaX;
 }
 
 static inline void cast_rays() {
@@ -473,36 +490,25 @@ IWRAM_CODE __attribute__((target("arm"))) void cast_rays_dda(void) {
 
 IWRAM_CODE void render_frame() {
     u8 *page = back_page();
-    u32 sky =
-        BLACK_COLOR_IDX |
-        (BLACK_COLOR_IDX << 8) |
-        (BLACK_COLOR_IDX << 16) |
-        (BLACK_COLOR_IDX << 24);
-
-    u32 floor =
-        FLOOR_COLOR_IDX |
-        (FLOOR_COLOR_IDX << 8) |
-        (FLOOR_COLOR_IDX << 16) |
-        (FLOOR_COLOR_IDX << 24);
 
     dma3_fill(
         page,
-        sky,
-        SCREEN_WIDTH * (SCREEN_HEIGHT / 2)
+        SKY_FILL_WORD,
+        SCREEN_WIDTH * HALF_SCREEN_HEIGHT
     );
 
     dma3_fill(
-        page + SCREEN_WIDTH * (SCREEN_HEIGHT / 2),
-        floor,
-        SCREEN_WIDTH * (SCREEN_HEIGHT / 2)
+        page + SCREEN_WIDTH * HALF_SCREEN_HEIGHT,
+        FLOOR_FILL_WORD,
+        SCREEN_WIDTH * HALF_SCREEN_HEIGHT
     );
 
     u16 *page16 = (u16 *)page;
 
     for (int x = 0; x < SCREEN_WIDTH; x += 2)
     {
-        int ray0 = (x * RAY_COUNT) / SCREEN_WIDTH;
-        int ray1 = ((x + 1) * RAY_COUNT) / SCREEN_WIDTH;
+        int ray0 = x >> RAY_PIXEL_SCALE_SHIFT;
+        int ray1 = (x + 1) >> RAY_PIXEL_SCALE_SHIFT;
 
         int t0 = wallTop[ray0];
         int b0 = wallBottom[ray0];
@@ -523,52 +529,52 @@ IWRAM_CODE void render_frame() {
         int top = t0 > t1 ? t0 : t1;
         int bot = b0 < b1 ? b0 : b1;
 
-        u16 *dst = page16 + top * 120 + x / 2;
+        u16 *dst = page16 + top * FRAMEBUFFER_STRIDE_U16 + (x >> 1);
 
         for (int y = top; y < bot; y++)
         {
             *dst = wall2;
-            dst += 120;
+            dst += FRAMEBUFFER_STRIDE_U16;
         }
 
         // Column x extends beyond x+1.
         if (t0 < t1)
         {
-            dst = page16 + t0 * 120 + x / 2;
+            dst = page16 + t0 * FRAMEBUFFER_STRIDE_U16 + (x >> 1);
 
             for (int y = t0; y < t1; y++)
             {
                 *dst = (*dst & 0xFF00) | c0;
-                dst += 120;
+                dst += FRAMEBUFFER_STRIDE_U16;
             }
 
-            dst = page16 + b1 * 120 + x / 2;
+            dst = page16 + b1 * FRAMEBUFFER_STRIDE_U16 + (x >> 1);
 
             for (int y = b1; y < b0; y++)
             {
                 *dst = (*dst & 0xFF00) | c0;
-                dst += 120;
+                dst += FRAMEBUFFER_STRIDE_U16;
             }
         }
         // Column x+1 extends beyond x.
         else if (t1 < t0)
         {
-            dst = page16 + t1 * 120 + x / 2;
+            dst = page16 + t1 * FRAMEBUFFER_STRIDE_U16 + (x >> 1);
 
             for (int y = t1; y < t0; y++)
             {
                 *dst = (*dst & 0x00FF)
                      | (c1 << 8);
-                dst += 120;
+                dst += FRAMEBUFFER_STRIDE_U16;
             }
 
-            dst = page16 + b0 * 120 + x / 2;
+            dst = page16 + b0 * FRAMEBUFFER_STRIDE_U16 + (x >> 1);
 
             for (int y = b0; y < b1; y++)
             {
                 *dst = (*dst & 0x00FF)
                      | (c1 << 8);
-                dst += 120;
+                dst += FRAMEBUFFER_STRIDE_U16;
             }
         }
     }
