@@ -1,8 +1,12 @@
 #include "tonc_input.h"
 #include "tonc_math.h"
+#include "tonc_memmap.h"
 #include "tonc_video.h"
 #include "inv_sin_lut.h"
 #include "line_height_lut.h"
+
+
+#define IWRAM_ARM IWRAM_CODE __attribute__((target("arm")))
 
 // typedef
 typedef s32 fx12;
@@ -95,19 +99,7 @@ enum VideoConsts {
     FRAMEBUFFER_STRIDE_U16 = SCREEN_WIDTH / PIXELS_PER_U16,
 };
 
-static const u16 worldMap[MAP_HEIGHT][MAP_WIDTH] = {
-    {1, 1, 1, 1, 1, 1, 1, 1, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 1, 1, 1, 0, 0, 1},
-    {1, 0, 0, 1, 0, 0, 0, 1, 1},
-    {1, 0, 0, 1, 0, 0, 0, 1, 1},
-    {1, 0, 0, 0, 0, 1, 0, 0, 1},
-    {1, 0, 0, 0, 0, 1, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 1, 1, 1, 1, 1, 1, 1, 1}
-};
-
-static const u8 rayMap[MAP_WIDTH * MAP_HEIGHT] = {
+static const u8 worldMap[MAP_WIDTH * MAP_HEIGHT] = {
     1, 1, 1, 1, 1, 1, 1, 1, 1,
     1, 0, 0, 0, 0, 0, 0, 0, 1,
     1, 0, 0, 1, 1, 1, 0, 0, 1,
@@ -203,10 +195,10 @@ static inline u32 fixed_abs(s32 x) {
 static inline u32 pixel_in_collision(u32 x, u32 y){
     u32 playerTileX = x >> TILE_SHIFT;
     u32 playerTileY = y >> TILE_SHIFT;
-    return worldMap[playerTileY][playerTileX];
+    return worldMap[playerTileY * MAP_WIDTH + playerTileX];
 }
 
-IWRAM_CODE __attribute__((target("arm"))) POINT player_in_collision(
+static inline POINT player_in_collision(
         s32 playerCenterX, s32 playerCenterY){
     s32 playerTileX = fixed_to_int(playerCenterX) >> TILE_SHIFT;
     s32 playerTileY = fixed_to_int(playerCenterY) >> TILE_SHIFT;
@@ -220,7 +212,7 @@ IWRAM_CODE __attribute__((target("arm"))) POINT player_in_collision(
                     neighborTileY < 0 || neighborTileY >= MAP_HEIGHT)
                 continue;
             // Do not check for collisions if this is not a wall
-            if (!worldMap[neighborTileY][neighborTileX]) {
+            if (!worldMap[neighborTileY * MAP_WIDTH + neighborTileX]) {
                 continue;
             }
             // Get the fixed coords for the AABB to check against
@@ -256,7 +248,7 @@ IWRAM_CODE __attribute__((target("arm"))) POINT player_in_collision(
     return moveCoords;
 }
 
-static inline fx12 clamp_steps(
+IWRAM_ARM fx12 clamp_steps(
     fx12 currentAxisCoord,
     fx12 delta,
     fx12 otherAxisCoord,
@@ -281,9 +273,18 @@ static inline void update_player() {
 
     s16 moveX = 0, moveY = 0, rotateTheta = 0;
 
+    // NOTE: Frame drops cause collision
+    // detection to scale as clamp_steps() has to do more work as it
+    // performs checks over a longer distance.
+    // On GBA, frame rates are quantized (60/30/20/etc), so we
+    // can exploit this
+    // Note that for 60 fps, dt is 4389 (68 secs per frame)
+    // for 30 fps, dt is 8778 (138 secs per frame). This can be baked
+    // into the constants rather than calculated on every frame.
     s16 secPerFrame = int_to_fixed(dt) / SYSCLK_64;
     s16 linearMove = LINEAR_SPEED * secPerFrame;
     s16 angularMove = ANGULAR_SPEED * secPerFrame;
+
     if (key_is_down(KEY_UP)) moveY += linearMove;
     if (key_is_down(KEY_DOWN)) moveY += -linearMove;
     if (key_is_down(KEY_R)) moveX += -linearMove;
@@ -389,8 +390,10 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
     const fx12 invYDir = lu_inv_abs_sin(rayAngle);
 
     u32 mapIndex = rayOrigin.mapIndex;
-    fx12 boundaryDistX = signX > 0 ? rayOrigin.boundaryDistX[0] : rayOrigin.boundaryDistX[1];
-    fx12 boundaryDistY = signY > 0 ? rayOrigin.boundaryDistY[0] : rayOrigin.boundaryDistY[1];
+    fx12 boundaryDistX = signX > 0 ? 
+        rayOrigin.boundaryDistX[0] : rayOrigin.boundaryDistX[1];
+    fx12 boundaryDistY = signY > 0 ? 
+        rayOrigin.boundaryDistY[0] : rayOrigin.boundaryDistY[1];
 
     fx12 tMaxX;
     fx12 tMaxY;
@@ -436,7 +439,7 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
             side = RAY_HIT_Y;
         }
 
-        if (rayMap[mapIndex]) {
+        if (worldMap[mapIndex]) {
             break;
         }
     }
@@ -446,7 +449,7 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
     };
 }
 
-IWRAM_CODE __attribute__((target("arm"))) void cast_rays_dda(void) {
+IWRAM_ARM void cast_rays_dda(void) {
     lu_angle rayAngle = playerTheta - HALF_FOV;
     u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
     u32 playerTileY = fixed_to_int(playerY) >> TILE_SHIFT;
@@ -486,7 +489,7 @@ IWRAM_CODE __attribute__((target("arm"))) void cast_rays_dda(void) {
     }
 }
 
-IWRAM_CODE void render_frame() {
+IWRAM_ARM void render_frame() {
     u8 *page = back_page();
 
     dma3_fill(
@@ -596,17 +599,17 @@ static inline void init_timebase(void) {
 }
 
 
-static inline void calc_delta_time(void) {
-    u16 now  = REG_TM0CNT_L;
-    dt = now - lastTicks;
-    lastTicks = now;
+static inline u16 elapsed_ticks(u16 timer_start) {
+    return REG_TM0CNT_L - timer_start;
+}
 
+static inline  u32 calculate_fps(u16 dt) {
     /* FPS = frames/seconds = 1/(diff * 1/262144)
      * Simplifying: FPS = 262144/diff.
      * Added diff/2 to round correctly */
-    fps = dt
-             ? (SYSCLK_64 + dt/2) / dt
-             : 0;
+    return dt
+        ? (SYSCLK_64 + (dt >> 1)) / dt
+        : 0;
 }
 
 
@@ -636,32 +639,31 @@ int main() {
 
         u16 update_start = REG_TM0CNT_L;
         update_player();
-        u16 update_end = REG_TM0CNT_L;
-        debug_update_ticks = update_end - update_start;
+        debug_update_ticks = elapsed_ticks(update_start);
 
         u16 ray_start = REG_TM0CNT_L;
         cast_rays_dda();
-        u16 ray_end = REG_TM0CNT_L;
-        debug_raycast_ticks = ray_end - ray_start;
+        debug_raycast_ticks = elapsed_ticks(ray_start);
 
         u16 render_start = REG_TM0CNT_L;
         render_frame();
-        u16 render_end = REG_TM0CNT_L;
-        debug_render_ticks = render_end - render_start;
+        debug_render_ticks = elapsed_ticks(render_start);
 
         u16 work_end = REG_TM0CNT_L;
         u16 frame_end = REG_TM0CNT_L;
         debug_work_ticks = work_end - work_start;
         debug_frame_ticks  = frame_end - frame_start;
 
-        debug_work_fps = debug_frame_ticks
-            ? (SYSCLK_64 + debug_frame_ticks / 2) / debug_frame_ticks
-            : 0;
+        debug_work_fps = calculate_fps(debug_frame_ticks);
 
         vid_vsync();
         vid_flip();
 
-        calc_delta_time();
+        u16 now  = REG_TM0CNT_L;
+        dt = now - lastTicks;
+        lastTicks = now;
+
+        fps = calculate_fps(dt);
         debug_actual_fps = fps;
     }
 }
