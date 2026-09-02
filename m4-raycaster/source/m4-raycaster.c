@@ -57,18 +57,15 @@ enum ColorConsts {
     FLOOR_COLOR_IDX = 3,
     LIGHT_WALL_COLOR_IDX = 4,
     DARK_WALL_COLOR_IDX = 5,
-    SKY_FILL_WORD = 
-        BLACK_COLOR_IDX |
-        (BLACK_COLOR_IDX << 8) |
-        (BLACK_COLOR_IDX << 16) |
-        (BLACK_COLOR_IDX << 24),
-    FLOOR_FILL_WORD = 
-        FLOOR_COLOR_IDX |
-        (FLOOR_COLOR_IDX << 8) |
-        (FLOOR_COLOR_IDX << 16) |
-        (FLOOR_COLOR_IDX << 24),
 };
 
+#define PIXEL4_WORD(c) \
+    ((c) | ((c) << 8) | ((c) << 16) | ((c) << 24))
+
+enum VideoFillConsts {
+    SKY_FILL_WORD = PIXEL4_WORD(BLACK_COLOR_IDX),
+    FLOOR_FILL_WORD = PIXEL4_WORD(FLOOR_COLOR_IDX)
+};
 
 enum PlayerConsts {
     PLAYER_RADIUS = TILE_SIZE_FX >> 2,
@@ -209,7 +206,8 @@ static inline u32 pixel_in_collision(u32 x, u32 y){
     return worldMap[playerTileY][playerTileX];
 }
 
-IWRAM_CODE __attribute__((target("arm"))) POINT player_in_collision(s32 playerCenterX, s32 playerCenterY){
+IWRAM_CODE __attribute__((target("arm"))) POINT player_in_collision(
+        s32 playerCenterX, s32 playerCenterY){
     s32 playerTileX = fixed_to_int(playerCenterX) >> TILE_SHIFT;
     s32 playerTileY = fixed_to_int(playerCenterY) >> TILE_SHIFT;
     POINT moveCoords = { 0, 0 };
