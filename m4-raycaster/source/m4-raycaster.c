@@ -1,3 +1,14 @@
+/* ============================================================================
+ * File: player.c
+ * Purpose:
+ *   Handles player movement, animation, collision, and sprite updates.
+ *
+ * Notes:
+ *   - Coordinates are stored in pixels.
+ *   - Sprite data is written to OAM during VBlank.
+ *   - GBA screen size: 240x160.
+ * ========================================================================== */
+
 #include "tonc_input.h"
 #include "tonc_math.h"
 #include "tonc_memmap.h"
@@ -5,10 +16,12 @@
 #include "inv_sin_lut.h"
 #include "line_height_lut.h"
 
-
 #define IWRAM_ARM IWRAM_CODE __attribute__((target("arm")))
 
-// typedef
+/* ============================================================================
+ * Constants
+ * ========================================================================== */
+
 typedef s32 fx12;
 typedef u16 lu_angle;
 
@@ -119,6 +132,17 @@ static u8 wallAxis[SCREEN_WIDTH];
 // Fish eye correction
 static fx12 fishEyeCorrection[RAY_COUNT];
 
+/* ============================================================================
+ * Function: player_update
+ * Purpose:
+ *   Updates player movement, collision, animation, and sprite state.
+ *
+ * Parameters:
+ *   player - Pointer to the player state.
+ *
+ * Returns:
+ *   None.
+ * ========================================================================== */
 static inline void init_fish_eye_correction(void)
 {
     lu_angle angle = -HALF_FOV;
@@ -129,7 +153,10 @@ static inline void init_fish_eye_correction(void)
     }
 }
 
-// Convert to Fixed point
+/* ----------------------------------------------------------------------------
+ * int_to_fixed
+ *   Converts value to fx12, fixed point.
+ * -------------------------------------------------------------------------- */
 static inline fx12 int_to_fixed(s32 x) {
     return x << FIXED_SHIFT;
 }
