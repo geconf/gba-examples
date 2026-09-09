@@ -1,12 +1,10 @@
 /* ============================================================================
- * File: player.c
+ * File: m4-raycaster.c
  * Purpose:
- *   Handles player movement, animation, collision, and sprite updates.
+ *   Handles player movement, collisions, raycasting and rendering .
  *
  * Notes:
- *   - Coordinates are stored in pixels.
- *   - Sprite data is written to OAM during VBlank.
- *   - GBA screen size: 240x160.
+ *   - Runs consistently at 60 FPS
  * ========================================================================== */
 
 #include "tonc_input.h"
@@ -16,11 +14,11 @@
 #include "inv_sin_lut.h"
 #include "line_height_lut.h"
 
-#define IWRAM_ARM IWRAM_CODE __attribute__((target("arm")))
-
 /* ============================================================================
  * Constants
  * ========================================================================== */
+
+#define IWRAM_ARM IWRAM_CODE __attribute__((target("arm")))
 
 typedef s32 fx12;
 typedef u16 lu_angle;
@@ -133,12 +131,13 @@ static u8 wallAxis[SCREEN_WIDTH];
 static fx12 fishEyeCorrection[RAY_COUNT];
 
 /* ============================================================================
- * Function: player_update
+ * Function: init_fish_eye_correction
  * Purpose:
- *   Updates player movement, collision, animation, and sprite state.
+ *   Used to precompute an array of fish eye correction scalars, given an FOV 
+ *   this multiplies the distance of each ray
  *
  * Parameters:
- *   player - Pointer to the player state.
+ *   None.
  *
  * Returns:
  *   None.
@@ -161,7 +160,10 @@ static inline fx12 int_to_fixed(s32 x) {
     return x << FIXED_SHIFT;
 }
 
-// Convert to integer. It adds half the divisor to round up
+/* ----------------------------------------------------------------------------
+ * int_to_fixed_s
+ *   Converts value to fx12, fixed point. Expects signed input
+ * -------------------------------------------------------------------------- */
 static inline s32 fixed_to_int_s(fx12 x) {
     const s32 half = 1 << (FIXED_SHIFT - 1);
     if (x >= 0) {
@@ -172,6 +174,10 @@ static inline s32 fixed_to_int_s(fx12 x) {
     }
 }
 
+/* ----------------------------------------------------------------------------
+ * int_to_fixed_u
+ *   Converts value to fx12, fixed point. Expects unsigned input
+ * -------------------------------------------------------------------------- */
 static inline u32 fixed_to_int_u(u32 x) {
     const u32 half = 1u << (FIXED_SHIFT - 1);
     return (x + half) >> FIXED_SHIFT;
@@ -210,21 +216,46 @@ static inline u8* back_page(void) {
          + ((REG_DISPCNT & DCNT_PAGE) ? 0x0000 : 0xA000);
 }
 
+/* ----------------------------------------------------------------------------
+ * fixed_mul
+ *   Multiplies two fx12 numbers
+ * -------------------------------------------------------------------------- */
 static inline s32 fixed_mul(s32 a, s32 b) {
     return (s32)(((s64)a * b) >> FIXED_SHIFT);
 }
 
+/* ----------------------------------------------------------------------------
+ * fixed_abs
+ *   Gets absolute value
+ * -------------------------------------------------------------------------- */
 static inline u32 fixed_abs(s32 x) {
     return x < 0 ? -x : x;
 }
 
 
-static inline u32 pixel_in_collision(u32 x, u32 y){
+/* ----------------------------------------------------------------------------
+ * point_in_collision
+ *   Checks if a point is within a tile
+ * -------------------------------------------------------------------------- */
+static inline u32 point_in_collision(u32 x, u32 y){
     u32 playerTileX = x >> TILE_SHIFT;
     u32 playerTileY = y >> TILE_SHIFT;
     return worldMap[playerTileY * MAP_WIDTH + playerTileX];
 }
 
+/* ============================================================================
+ * Function: player_in_collision
+ * Purpose:
+ *   Performs circle vs AABB check. It returns a POINT which indicates the
+ *   allowed movement. This clamps the player to the wall
+ *
+ * Parameters:
+ *   playerCenterX: Player's x position.
+ *   playerCenterY: Player's y position.
+ *
+ * Returns:
+ *   moveCoords: Allowed movement in x and y.
+ * ========================================================================== */
 static inline POINT player_in_collision(
         s32 playerCenterX, s32 playerCenterY){
     s32 playerTileX = fixed_to_int(playerCenterX) >> TILE_SHIFT;
@@ -275,6 +306,20 @@ static inline POINT player_in_collision(
     return moveCoords;
 }
 
+/* ============================================================================
+ * Function: clamp_steps
+ * Purpose:
+ *   Performs single-axis clamping given a set of axis coordinates.
+ *
+ * Parameters:
+ *   currentAxisCoord: Current position on the moving axis.
+ *   delta: Quantity to move.
+ *   otherAxisCoord: Current position on the lateral axis.
+ *   isVertical: Whether the movement occurs in x or y
+ *
+ * Returns:
+ *   moveCoords: Allowed movement in x and y.
+ * ========================================================================== */
 IWRAM_ARM fx12 clamp_steps(
     fx12 currentAxisCoord,
     fx12 delta,
@@ -295,6 +340,17 @@ IWRAM_ARM fx12 clamp_steps(
     return sign * steps;
 }
 
+/* ============================================================================
+ * Function: update_player
+ * Purpose:
+ *   Updates the player state. Reads current input and performs collision checking
+ *
+ * Parameters:
+ *   None.
+ *
+ * Returns:
+ *   None.
+ * ========================================================================== */
 static inline void update_player() {
     key_poll();
 
@@ -345,6 +401,18 @@ static inline void update_player() {
     //playerX += deltaX;
 }
 
+/* ============================================================================
+ * Function: cast_rays
+ * Purpose:
+ *   Performs raymarching. It uses a coarse pass and a fine pass.
+ *   Updates wallBottom[] and wallTop[]
+ *
+ * Parameters:
+ *   None.
+ *
+ * Returns:
+ *   None.
+ * ========================================================================== */
 static inline void cast_rays() {
     lu_angle rayAngle = playerTheta - HALF_FOV;
     for (int i = 0; i < RAY_COUNT; i++ ) {
@@ -356,7 +424,7 @@ static inline void cast_rays() {
             fx12 z = int_to_fixed(j);
             fx12 xRay = playerX+fixed_mul(z, xDir);
             fx12 yRay = playerY+fixed_mul(z, yDir);
-            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+            if (point_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
                 dist = int_to_fixed(j - 1);
                 break;
             }
@@ -367,7 +435,7 @@ static inline void cast_rays() {
         for (fx12 j = 1; j < RAY_LENGTH + 1; j = j + 300) {
             fx12 xRay = playerX + xDist + fixed_mul(j, xDir);
             fx12 yRay = playerY + yDist + fixed_mul(j, yDir);
-            if (pixel_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
+            if (point_in_collision(fixed_to_int(xRay), fixed_to_int(yRay))) {
                 dist += j;
                 break;
             }
@@ -394,11 +462,19 @@ static inline void cast_rays() {
 }
 
 
+/* ----------------------------------------------------------------------------
+ * angle_sign_cos
+ *   Gets the sign of the cosine of a given angle
+ * -------------------------------------------------------------------------- */
 static inline s32 angle_sign_cos(lu_angle a)
 {
     return ((a + LU_HALF_PI) & LU_PI) ? -1 : 1;
 }
 
+/* ----------------------------------------------------------------------------
+ * fixed_abs
+ *   Gets the sign of the sine of a given angle
+ * -------------------------------------------------------------------------- */
 static inline s32 angle_sign_sin(lu_angle a)
 {
     return (a & LU_PI) ? -1 : 1;
@@ -410,6 +486,19 @@ typedef struct {
     u32 mapIndex;
 } RayOrigin;
 
+/* ============================================================================
+ * Function: cast_ray_dda
+ * Purpose:
+ *   Performs a distance check for a single ray using dda.
+ *
+ * Parameters:
+ *   rayAngle: Angle of the ray
+ *   rayOrigin: data structure representing the distance to the tile
+ *   boundaries.
+ *
+ * Returns:
+ *   None.
+ * ========================================================================== */
 static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
     const s32 signX = angle_sign_cos(rayAngle);
     const s32 signY = angle_sign_sin(rayAngle);
@@ -476,6 +565,17 @@ static inline RayHit cast_ray_dda(lu_angle rayAngle, RayOrigin rayOrigin) {
     };
 }
 
+/* ============================================================================
+ * Function: cast_rays_dda
+ * Purpose:
+ *   Performs raycasting and obtains wall heights. Fish-eye correction is applied
+ *
+ * Parameters:
+ *   None.
+ *
+ * Returns:
+ *   None.
+ * ========================================================================== */
 IWRAM_ARM void cast_rays_dda(void) {
     lu_angle rayAngle = playerTheta - HALF_FOV;
     u32 playerTileX = fixed_to_int(playerX) >> TILE_SHIFT;
@@ -516,6 +616,17 @@ IWRAM_ARM void cast_rays_dda(void) {
     }
 }
 
+/* ============================================================================
+ * Function: render_frame
+ * Purpose:
+ *   Renders the scene
+ *
+ * Parameters:
+ *   None.
+ *
+ * Returns:
+ *   None.
+ * ========================================================================== */
 IWRAM_ARM void render_frame() {
     u8 *page = back_page();
 
@@ -608,6 +719,10 @@ IWRAM_ARM void render_frame() {
     }
 }
 
+/* ----------------------------------------------------------------------------
+ * init_timebase
+ *   Enables and starts clock
+ * -------------------------------------------------------------------------- */
 static inline void init_timebase(void) {
     REG_TM0CNT_L = 0;
     /* start at SYSCLK (16.78 MHz)
@@ -626,10 +741,18 @@ static inline void init_timebase(void) {
 }
 
 
+/* ----------------------------------------------------------------------------
+ * init_timebase
+ *   Simple subtraction current - reference
+ * -------------------------------------------------------------------------- */
 static inline u16 elapsed_ticks(u16 timer_start) {
     return REG_TM0CNT_L - timer_start;
 }
 
+/* ----------------------------------------------------------------------------
+ * calculate_fps
+ *   Gets FPS using SYSCLK_64
+ * -------------------------------------------------------------------------- */
 static inline  u32 calculate_fps(u16 dt) {
     /* FPS = frames/seconds = 1/(diff * 1/262144)
      * Simplifying: FPS = 262144/diff.
@@ -640,6 +763,10 @@ static inline  u32 calculate_fps(u16 dt) {
 }
 
 
+/* ----------------------------------------------------------------------------
+ * main
+ *   Main loop
+ * -------------------------------------------------------------------------- */
 int main() {
     REG_DISPCNT = DCNT_MODE4 | DCNT_BG2;
 
