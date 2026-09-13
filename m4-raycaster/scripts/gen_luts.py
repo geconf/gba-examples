@@ -15,16 +15,23 @@ INCLUDE_DIR = ROOT / 'include'
 
 SCREEN_HEIGHT = 160
 TILE_SIZE = 8
-LINE_HEIGHT_FRAC_BITS = 5
+LINE_HEIGHT_LUT_FRAC_BITS = 5
 RAY_LENGTH = 100
+
+# inv_trig
+INV_SIN_LUT_NAME = 'inv_sin_lut'
+INV_COS_LUT_NAME = 'inv_cos_lut'
+
+# line_height
+LINE_HEIGHT_LUT_NAME = 'line_height_lut'
 
 
 def generate_inv_sin():
-    with open(SOURCE_DIR / 'inv_sin_lut.c', 'w') as f:
+    with open(SOURCE_DIR / f'{INV_SIN_LUT_NAME}.c', 'w') as f:
         print('#include <tonc.h>', file=f)
-        print('#include "inv_sin_lut.h"', file=f)
+        print(f'#include "{INV_SIN_LUT_NAME}.h"', file=f)
         print(file=f)
-        print(f'const s32 inv_sin_lut[{LUT_SIZE}] = {{', file=f)
+        print(f'const s32 {INV_SIN_LUT_NAME}[{LUT_SIZE}] = {{', file=f)
 
         for i in range(LUT_SIZE):
             angle = (2.0 * math.pi * i) / LUT_SIZE
@@ -47,7 +54,7 @@ def generate_inv_sin():
                 print(file=f)
         print('};', file=f)
 
-    with open(INCLUDE_DIR / 'inv_sin_lut.h', 'w') as f:
+    with open(INCLUDE_DIR / f'{INV_SIN_LUT_NAME}.h', 'w') as f:
         print('#ifndef INV_SIN_LUT_H', file=f)
         print('#define INV_SIN_LUT_H', file=f)
         print(file=f)
@@ -57,23 +64,23 @@ def generate_inv_sin():
         print(file=f)
         print(f'#define INV_SIN_INF 0x{FX_INF:08X}', file=f)
         print(file=f)
-        print(f'extern const s32 inv_sin_lut[{LUT_SIZE}];', file=f)
+        print(f'extern const s32 {INV_SIN_LUT_NAME}[{LUT_SIZE}];', file=f)
         print(file=f)
         print('static inline s32 lu_inv_abs_sin(uint theta)', file=f)
         print('{', file=f)
-        print('    return inv_sin_lut[(theta >> 7) & 0x1FF];', file=f)
+        print(f'    return {INV_SIN_LUT_NAME}[(theta >> 7) & 0x1FF];', file=f)
         print('}', file=f)
         print(file=f)
         print('static inline s32 lu_inv_abs_cos(uint theta)', file=f)
         print('{', file=f)
-        print('    return inv_sin_lut[((theta >> 7) + 128) & 0x1FF];', file=f)
+        print(f'    return {INV_SIN_LUT_NAME}[((theta >> 7) + 128) & 0x1FF];', file=f)
         print('}', file=f)
         print(file=f)
         print('#endif', file=f)
 
 
 def generate_line_height():
-    frac_scale = 1 << LINE_HEIGHT_FRAC_BITS
+    frac_scale = 1 << LINE_HEIGHT_LUT_FRAC_BITS
 
     # Maximum LUT index = maximum distance in tiles * samples per tile.
     max_index = (
@@ -82,13 +89,13 @@ def generate_line_height():
 
     lut_size = max_index + 1
 
-    with open(SOURCE_DIR / 'line_height_lut.c', 'w') as f:
+    with open(SOURCE_DIR / f'{LINE_HEIGHT_LUT_NAME}.c', 'w') as f:
         print('#include <tonc.h>', file=f)
-        print('#include "line_height_lut.h"', file=f)
+        print(f'#include "{LINE_HEIGHT_LUT_NAME}.h"', file=f)
         print(file=f)
 
         print(
-            f'const s32 line_height_lut[{lut_size}] = {{',
+            f'const s32 {LINE_HEIGHT_LUT_NAME}[{lut_size}] = {{',
             file=f
         )
 
@@ -131,7 +138,7 @@ def generate_line_height():
 
         print('};', file=f)
 
-    with open(INCLUDE_DIR / 'line_height_lut.h', 'w') as f:
+    with open(INCLUDE_DIR / f'{LINE_HEIGHT_LUT_NAME}.h', 'w') as f:
         print('#ifndef LINE_HEIGHT_LUT_H', file=f)
         print('#define LINE_HEIGHT_LUT_H', file=f)
         print(file=f)
@@ -144,13 +151,13 @@ def generate_line_height():
             file=f
         )
         print(
-            f'#define LINE_HEIGHT_LUT_FRAC_BITS {LINE_HEIGHT_FRAC_BITS}',
+            f'#define LINE_HEIGHT_LUT_FRAC_BITS {LINE_HEIGHT_LUT_FRAC_BITS}',
             file=f
         )
         print(file=f)
 
         print(
-            f'extern const s32 line_height_lut[{lut_size}];',
+            f'extern const s32 {LINE_HEIGHT_LUT_NAME}[{lut_size}];',
             file=f
         )
 
